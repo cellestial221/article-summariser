@@ -7,19 +7,14 @@ class ArticleSummarizer:
             raise ValueError("API key is required")
 
         try:
-            # Test the API key by creating a client
+            # Initialize the client with just the API key
             self.anthropic = Anthropic(api_key=api_key)
 
             # Try to make a minimal API call to validate the key
             self.anthropic.messages.create(
                 model="claude-3-sonnet-20240229",
                 max_tokens=10,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "Reply with 'OK' only"
-                    }
-                ]
+                messages=[{"role": "user", "content": "Test"}]
             )
         except Exception as e:
             raise ValueError(f"Invalid API key: {str(e)}")
