@@ -18,6 +18,17 @@ def reset_form():
     st.session_state['summary'] = None
     st.session_state['error_message'] = None
 
+def safe_display_text(text):
+    """Safely display text content, handling potential encoding or formatting issues"""
+    if text is None:
+        return ""
+
+    # Ensure it's a string
+    text_str = str(text)
+
+    # Use st.text() instead of st.write() for safer display of API responses
+    return text_str
+
 def handle_submit():
     """Handle form submission logic"""
     if 'summarizer' not in st.session_state:
@@ -55,8 +66,8 @@ def handle_submit():
             sentence_count=st.session_state[f'sentence_count_{unique_key}']
         )
 
-        # Store summary in session state
-        st.session_state['summary'] = summary
+        # Store summary in session state, ensuring it's properly cleaned
+        st.session_state['summary'] = safe_display_text(summary)
 
     except Exception as e:
         st.session_state['error_message'] = f"An error occurred: {str(e)}"
@@ -190,10 +201,13 @@ def main():
                 with st.spinner("Generating summary..."):
                     st.empty()
 
-            # Display summary
+            # Display summary using safe text display
             if st.session_state['summary']:
                 st.subheader("Summary")
-                st.write(st.session_state['summary'])
+
+                # Use st.text() for safer display of API responses
+                # This prevents formatting issues with special characters
+                st.text(st.session_state['summary'])
 
                 # Copy to clipboard button
                 if st.button("Copy to Clipboard", type="primary"):
