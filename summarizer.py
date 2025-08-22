@@ -13,7 +13,7 @@ class ArticleSummarizer:
 
             # Try to make a minimal API call to validate the key
             self.anthropic.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-sonnet-4-20250514",  # UPDATED: Changed from claude-3-sonnet-20240229
                 max_tokens=10,
                 messages=[{"role": "user", "content": "Test"}]
             )
@@ -100,7 +100,7 @@ class ArticleSummarizer:
             # For op-eds, first ask Claude to identify the author's role
             try:
                 author_role_message = self.anthropic.messages.create(
-                    model="claude-3-sonnet-20240229",
+                    model="claude-sonnet-4-20250514",  # UPDATED: Changed from claude-3-sonnet-20240229
                     max_tokens=1024,
                     messages=[
                         {
@@ -137,7 +137,7 @@ class ArticleSummarizer:
         try:
             # Get response from Claude
             message = self.anthropic.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-sonnet-4-20250514",  # UPDATED: Changed from claude-3-sonnet-20240229
                 max_tokens=1024,
                 messages=[
                     {
