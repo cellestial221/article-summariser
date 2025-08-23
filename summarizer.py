@@ -67,7 +67,42 @@ class ArticleSummarizer:
         # Remove any remaining artifacts
         summary = summary.replace('TextBlock(text="', '').replace('", type="text")', '')
 
+        # Remove line breaks between sentences but preserve the space
+        # This handles various types of line breaks
+        summary = summary.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
+
+        # Clean up any multiple spaces that may have been created
+        import re
+        summary = re.sub(r'\s+', ' ', summary)
+
         return summary.strip()
+
+    def _build_client_mention_context(self, client_name: str, mention_count: int) -> str:
+        """Build contextual instructions for client mentions in the summary"""
+        if not client_name or mention_count == 0:
+            return ""
+
+        if mention_count == 1:
+            context = (f"\n\nIMPORTANT: The client '{client_name}' is mentioned once in this article. "
+                      f"You must accurately reflect this single mention in the summary with appropriate context. "
+                      f"If the mention is brief or peripheral, do not overemphasise it (especially not in the first sentence). "
+                      f"If '{client_name}' is central to the story, position it appropriately. "
+                      f"Be accurate about HOW '{client_name}' is described or referenced in the article.")
+        elif mention_count <= 3:
+            context = (f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article. "
+                      f"You must accurately reflect these mentions in the summary with appropriate weight and context. "
+                      f"If the mentions are brief or peripheral, do not overemphasise them. "
+                      f"If '{client_name}' is central to the story, ensure this is clear in the summary. "
+                      f"Be accurate about HOW '{client_name}' is described or referenced, maintaining the article's perspective.")
+        else:
+            context = (f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article, "
+                      f"suggesting they are likely a significant element of the story. "
+                      f"You must accurately reflect '{client_name}'s prominence in the summary while maintaining overall balance. "
+                      f"If '{client_name}' is the main focus, this should be clear (potentially in the first sentence). "
+                      f"If they are one of several key elements, position them appropriately. "
+                      f"Be precise about HOW '{client_name}' is described, what role they play, and maintain the article's tone and perspective.")
+
+        return context
 
     def detect_article_type(self, article_text: str) -> dict:
         """
@@ -146,9 +181,46 @@ Article text:
         except Exception as e:
             raise Exception(f"Error detecting article type: {str(e)}")
 
-    def get_summary(self, article_text: str, publication: str, article_type: str, author: str = None, specific_instructions: str = None, sentence_count: int = 3) -> str:
+    def _get_system_message(self) -> str:
+        """
+        Get the system message that establishes Claude's role for concise summarization
+        """
+        return """You are an expert news summarizer who specializes in creating SHORT, readable, information-dense summaries while maintaining absolute factual accuracy.
+
+CRITICAL ACCURACY RULES:
+- NEVER change currencies (if the article mentions dollars, use dollars; if euros, use euros; if pounds, use pounds)
+- British English spelling does NOT mean British currency - these are completely separate
+- Preserve all numbers, amounts, and financial figures exactly as stated
+- Maintain factual accuracy above all else - never alter facts for brevity
+
+Your writing style:
+- Each sentence should be SHORT but also MUST flow naturally with proper grammar
+- Include necessary articles (the, a, an) and conjunctions (that, which, who) for clarity
+- Combine related ideas efficiently while maintaining natural speech patterns
+- Use precise, specific language over vague terms
+- Aim for 15 words per sentence (flexibility for natural flow)
+- Every word must contribute to clarity or accuracy
+
+IMPORTANT: Return the summary as a single continuous paragraph with no line breaks between sentences. Sentences should flow together with just spaces between them.
+
+Remember: Readers want maximum information in minimum time with 100% factual accuracy. Think like a telegraph operator who pays per word but NEVER sacrifices accuracy."""
+
+    def get_summary(self, article_text: str, publication: str, article_type: str,
+                   author: str = None, specific_instructions: str = None,
+                   sentence_count: int = 3, client_name: str = None,
+                   client_mention_count: int = None) -> str:
         """
         Get article summary using Claude API
+
+        Args:
+            article_text: The article content to summarize
+            publication: Name of the publication
+            article_type: Type of article (news, op-ed, feature, interview)
+            author: Author name (required for op-eds) or interviewee name (for interviews)
+            specific_instructions: Optional specific instructions for the summary
+            sentence_count: Number of sentences in the summary (2-6)
+            client_name: Optional client name to track in the summary
+            client_mention_count: Number of times the client is mentioned
         """
         # Validate inputs
         if not article_text or not publication:
@@ -163,13 +235,24 @@ Article text:
         if specific_instructions:
             instruction_text = f" Pay special attention to the following aspects: {specific_instructions}."
 
+        # Build client mention context if provided
+        client_context = ""
+        if client_name and client_mention_count:
+            client_context = self._build_client_mention_context(client_name, client_mention_count)
+
+        # Common instruction for all article types about spelling vs content preservation
+        spelling_instruction = ("Use British English spelling conventions (e.g., 'colour', 'realise', 'centre', 'organisation') "
+                               "but preserve all other details exactly as they appear in the original article, "
+                               "including currencies, locations, measurements, and proper nouns. "
+                               "Do not convert currencies to pounds or change any factual details.")
+
         # Select appropriate prompt based on article type
         if article_type == "news":
-            prompt = (f"Summarise this news article in {sentence_count} *short* sentences. Use British English spelling ONLY!!! Be specific where applicable. Full sentences only, no lists. {instruction_text} "
+            prompt = (f"Summarise this news article in {sentence_count} *short* sentences. {spelling_instruction} Be specific where applicable. Full sentences only, no lists.{instruction_text}{client_context} "
                      f"You MUST begin with '{publication} reports that'\n\nArticle: {article_text}")
 
         elif article_type == "interview":
-            prompt = (f"Summarise this interview article in {sentence_count} *concise* SHORT sentences that flow. Use British English spelling ONLY. Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text} "
+            prompt = (f"Summarise this interview article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
                     f"For your first sentence: Begin with '{publication} carries an interview with {author}' and include a brief overview of the main topic discussed. "
                     f"For remaining {sentence_count-1} sentences, begin these sentences like  '[author last name] argues/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}")
 
@@ -179,6 +262,7 @@ Article text:
                 author_role_message = self.anthropic.messages.create(
                     model="claude-sonnet-4-20250514",
                     max_tokens=1024,
+                    system="You are a precise information extractor. Respond only with the requested information, nothing more.",
                     messages=[
                         {
                             "role": "user",
@@ -204,18 +288,19 @@ Article text:
                 print(f"Error getting author role: {e}")
                 author_intro = author
 
-            prompt = (f"Summarise this op-ed article in {sentence_count} *concise* SHORT sentences that flow. Use British English spelling ONLY. Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text} "
+            prompt = (f"Summarise this op-ed article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
                         f"For your first sentence: Begin with '{publication} carries an op-ed by {author_intro}' and include a brief overview of their main argument. "
                         f"For remaining {sentence_count-1} sentences, begin these sentences like  '[author last name] argues/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}")
         else:  # feature
-            prompt = (f"Summarise this feature article in {sentence_count} *concise* SHORT sentences that flow. Use British English spelling ONLY and where applicable begin sentences like 'The article (also) highlights/cites/notes/discusses/examines/suggests'. Do NOT use 'we' in the summary. Be specific where applicable and make sure to convey the broad points of the piece in the summary.{instruction_text} "
+            prompt = (f"Summarise this feature article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Where applicable begin sentences like 'The article (also) highlights/cites/notes/discusses/examines/suggests'. Do NOT use 'we' in the summary. Be specific where applicable and make sure to convey the broad points of the piece in the summary.{instruction_text}{client_context} "
                      f"You MUST begin with '{publication} carries a feature'\n\nArticle: {article_text}")
 
         try:
-            # Get response from Claude
+            # Get response from Claude with system message for conciseness
             message = self.anthropic.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=1024,
+                system=self._get_system_message(),
                 messages=[
                     {
                         "role": "user",

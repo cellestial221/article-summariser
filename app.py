@@ -2,6 +2,7 @@ import streamlit as st
 import pyperclip
 from summarizer import ArticleSummarizer
 import os
+import re
 
 def copy_to_clipboard(text: str):
     """Helper function to copy text to clipboard"""
@@ -19,6 +20,8 @@ def reset_form():
     st.session_state['error_message'] = None
     st.session_state['detected_type'] = None
     st.session_state['detection_explanation'] = None
+    st.session_state['client_mention_count'] = None
+    st.session_state['client_validation_done'] = False
 
 def safe_display_text(text):
     """Safely display text content, handling potential encoding or formatting issues"""
@@ -30,6 +33,38 @@ def safe_display_text(text):
 
     # Use st.text() instead of st.write() for safer display of API responses
     return text_str
+
+def count_client_mentions(article_text: str, client_name: str) -> int:
+    """Count how many times a client is mentioned in the article text"""
+    if not article_text or not client_name:
+        return 0
+
+    # Clean the client name and article text
+    client_name = client_name.strip()
+
+    # Create various patterns to match (case-insensitive)
+    # This handles variations like "Company", "Company's", "Company Inc.", etc.
+    patterns = [
+        r'\b' + re.escape(client_name) + r'\b',  # Exact word match
+        r'\b' + re.escape(client_name) + r'\'s\b',  # Possessive form
+        r'\b' + re.escape(client_name) + r's\b',  # Alternative possessive
+    ]
+
+    total_count = 0
+    for pattern in patterns:
+        matches = re.findall(pattern, article_text, re.IGNORECASE)
+        total_count += len(matches)
+
+    # Remove duplicate counts (e.g., if "Company's" was counted both as "Company" and "Company's")
+    # by doing a more sophisticated count
+    all_matches = re.findall(r'\b' + re.escape(client_name) + r'(?:\'?s)?\b', article_text, re.IGNORECASE)
+
+    return len(all_matches)
+
+def validate_client_mention(article_text: str, client_name: str):
+    """Validate if client is mentioned and return count"""
+    count = count_client_mentions(article_text, client_name)
+    return count
 
 def handle_type_detection():
     """Handle article type detection"""
@@ -80,6 +115,23 @@ def handle_submit():
     author = st.session_state.get(f'author_{unique_key}', None)
     specific_instructions = st.session_state.get(f'specific_instructions_{unique_key}', None)
 
+    # Handle client mention feature
+    client_name = None
+    client_mention_count = None
+    use_client_tracking = st.session_state.get(f'use_client_tracking_{unique_key}', False)
+
+    if use_client_tracking:
+        client_name = st.session_state.get(f'client_name_{unique_key}', '').strip()
+        if client_name:
+            # Validate client mentions
+            client_mention_count = validate_client_mention(article_text, client_name)
+            if client_mention_count == 0:
+                st.session_state['error_message'] = f"'{client_name}' was not found in the article text. Please check the client name and try again."
+                return
+            # Store for display
+            st.session_state['client_mention_count'] = client_mention_count
+            st.session_state['client_validation_done'] = True
+
     # Validate inputs
     if not publication or not article_text:
         st.session_state['error_message'] = "Please provide both publication name and article text"
@@ -94,14 +146,16 @@ def handle_submit():
     st.session_state['is_summarizing'] = True
 
     try:
-        # Get summary
+        # Get summary with client mention info if applicable
         summary = st.session_state.summarizer.get_summary(
             article_text=article_text,
             publication=publication,
             article_type=article_type,
             author=author,
             specific_instructions=specific_instructions,
-            sentence_count=st.session_state[f'sentence_count_{unique_key}']
+            sentence_count=st.session_state[f'sentence_count_{unique_key}'],
+            client_name=client_name,
+            client_mention_count=client_mention_count
         )
 
         # Store summary in session state, ensuring it's properly cleaned
@@ -149,6 +203,10 @@ def main():
         st.session_state['detected_type'] = None
     if 'detection_explanation' not in st.session_state:
         st.session_state['detection_explanation'] = None
+    if 'client_mention_count' not in st.session_state:
+        st.session_state['client_mention_count'] = None
+    if 'client_validation_done' not in st.session_state:
+        st.session_state['client_validation_done'] = False
 
     # Title and description
     st.title("📰 Article Summariser")
@@ -274,6 +332,28 @@ def main():
                     key=f'specific_instructions_{unique_key}'
                 )
 
+            # Add client mention tracking feature
+            use_client_tracking = st.checkbox(
+                "Client mention?",
+                help="Ensure accurate representation of client mentions in the summary",
+                key=f'use_client_tracking_{unique_key}'
+            )
+            if use_client_tracking:
+                client_name = st.text_input(
+                    "Client Name",
+                    placeholder="Enter the client name to track...",
+                    help="The summary will accurately reflect how this client is mentioned in context",
+                    key=f'client_name_{unique_key}'
+                )
+
+                # Show validation result if available
+                if st.session_state.get('client_validation_done') and st.session_state.get('client_mention_count'):
+                    count = st.session_state['client_mention_count']
+                    if count == 1:
+                        st.info(f"✓ '{client_name}' is mentioned once in the article")
+                    else:
+                        st.info(f"✓ '{client_name}' is mentioned {count} times in the article")
+
             st.divider()
 
             # Summarize button
@@ -322,6 +402,8 @@ def main():
                 **🤖 AI Analysis**: Let Claude Haiku automatically detect whether your article is news, an op-ed, feature, or interview
 
                 **📋 Manual Selection**: Choose the type yourself from the dropdown (default)
+
+                **🏢 Client Tracking**: Track how a specific client is mentioned to ensure accurate representation in the summary
                 """)
 
 if __name__ == "__main__":
