@@ -79,18 +79,23 @@ def handle_type_detection():
         st.session_state['error_message'] = "Please paste your article text before analyzing"
         return
 
-    st.session_state['is_analyzing'] = True
     st.session_state['error_message'] = None
 
+    # Create a placeholder for the progress indicator
+    progress_placeholder = st.empty()
+
     try:
-        result = st.session_state.summarizer.detect_article_type(article_text)
+        with progress_placeholder.container():
+            with st.spinner('🔍 Analyzing article type with Claude Haiku...'):
+                result = st.session_state.summarizer.detect_article_type(article_text)
+
         st.session_state['detected_type'] = result['type']
         st.session_state['detection_explanation'] = result['explanation']
         st.success(f"Article type detected: **{result['type'].title()}** - {result['explanation']}")
     except Exception as e:
         st.session_state['error_message'] = f"Error detecting article type: {str(e)}"
     finally:
-        st.session_state['is_analyzing'] = False
+        progress_placeholder.empty()
 
 def handle_submit():
     """Handle form submission logic"""
@@ -143,7 +148,6 @@ def handle_submit():
 
     # Clear any previous error message
     st.session_state['error_message'] = None
-    st.session_state['is_summarizing'] = True
 
     try:
         # Get summary with client mention info if applicable
@@ -164,15 +168,13 @@ def handle_submit():
     except Exception as e:
         st.session_state['error_message'] = f"An error occurred: {str(e)}"
 
-    finally:
-        st.session_state['is_summarizing'] = False
-
 def initialize_summarizer(api_key: str):
     """Initialize the summarizer with the provided API key"""
     try:
-        summarizer = ArticleSummarizer(api_key)
-        st.session_state['summarizer'] = summarizer
-        st.session_state['api_key_valid'] = True
+        with st.spinner('Validating API key...'):
+            summarizer = ArticleSummarizer(api_key)
+            st.session_state['summarizer'] = summarizer
+            st.session_state['api_key_valid'] = True
         st.success("API key validated successfully!")
     except Exception as e:
         st.error(f"Invalid API key: {str(e)}")
@@ -193,10 +195,6 @@ def main():
         st.session_state['summary'] = None
     if 'error_message' not in st.session_state:
         st.session_state['error_message'] = None
-    if 'is_summarizing' not in st.session_state:
-        st.session_state['is_summarizing'] = False
-    if 'is_analyzing' not in st.session_state:
-        st.session_state['is_analyzing'] = False
     if 'api_key_valid' not in st.session_state:
         st.session_state['api_key_valid'] = False
     if 'detected_type' not in st.session_state:
@@ -266,11 +264,6 @@ def main():
                 # AI Detection Path
                 if st.button("🔍 Analyze Article Type", type="secondary"):
                     handle_type_detection()
-
-                # Show loading spinner when analyzing
-                if st.session_state.get('is_analyzing', False):
-                    with st.spinner("Analyzing article type..."):
-                        st.empty()
 
                 # Show detected type
                 if st.session_state.get('detected_type'):
@@ -356,55 +349,74 @@ def main():
 
             st.divider()
 
-            # Summarize button
-            st.button("Summarise", type="primary", on_click=handle_submit, use_container_width=True)
+            # Summarize button with spinner
+            if st.button("Summarise", type="primary", use_container_width=True):
+                with st.spinner('🤖 Generating summary with Claude Sonnet...'):
+                    handle_submit()
 
         with col2:
             # Display any error messages at the top of the right column
             if st.session_state.get('error_message'):
                 st.error(st.session_state['error_message'])
 
-            # Show loading spinner when processing
-            if st.session_state.get('is_summarizing', False):
-                with st.spinner("Generating summary..."):
-                    st.empty()
-
             # Display summary using safe text display
             if st.session_state['summary']:
                 st.subheader("Summary")
 
-                # Use st.text() for safer display of API responses
-                # This prevents formatting issues with special characters
-                st.text(st.session_state['summary'])
+                # Create a nice container for the summary
+                with st.container():
+                    # Add a subtle background color to the summary box
+                    st.markdown(
+                        """
+                        <style>
+                        .summary-box {
+                            background-color: #f0f2f6;
+                            padding: 20px;
+                            border-radius: 10px;
+                            margin: 10px 0;
+                        }
+                        </style>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
-                # Copy to clipboard button
-                if st.button("Copy to Clipboard", type="primary"):
-                    copy_to_clipboard(st.session_state['summary'])
+                    # Display the summary text
+                    st.text(st.session_state['summary'])
 
-                # New Article button with different color
-                st.button("New Article",
-                         type="secondary",
-                         on_click=reset_form,
-                         help="Start a new article summary")
+                # Action buttons in a row
+                col_copy, col_new = st.columns(2)
+
+                with col_copy:
+                    if st.button("📋 Copy to Clipboard", type="primary", use_container_width=True):
+                        copy_to_clipboard(st.session_state['summary'])
+
+                with col_new:
+                    st.button("🔄 New Article",
+                             type="secondary",
+                             on_click=reset_form,
+                             help="Start a new article summary",
+                             use_container_width=True)
 
             # Show helpful information when no summary is present
-            elif not st.session_state.get('is_summarizing', False):
-                st.markdown("""
-                ### How to use:
+            else:
+                # Create an info box with better styling
+                with st.container():
+                    st.markdown("""
+                    ### 📖 How to use:
 
-                **Step 1:** Enter publication name
-                **Step 2:** Paste your article text
-                **Step 3:** Select article type manually **OR** check the AI analysis option
-                **Step 4:** Set summary length and generate
+                    **Step 1:** Enter publication name
+                    **Step 2:** Paste your article text
+                    **Step 3:** Select article type manually **OR** check the AI analysis option
+                    **Step 4:** Set summary length and generate
 
-                ---
+                    ---
 
-                **🤖 AI Analysis**: Let Claude Haiku automatically detect whether your article is news, an op-ed, feature, or interview
+                    **🤖 AI Analysis**: Let Claude Haiku automatically detect whether your article is news, an op-ed, feature, or interview
 
-                **📋 Manual Selection**: Choose the type yourself from the dropdown (default)
+                    **📋 Manual Selection**: Choose the type yourself from the dropdown (default)
 
-                **🏢 Client Tracking**: Track how a specific client is mentioned to ensure accurate representation in the summary
-                """)
+                    **🏢 Client Tracking**: Track how a specific client is mentioned to ensure accurate representation in the summary
+                    """)
 
 if __name__ == "__main__":
     main()

@@ -106,29 +106,60 @@ class ArticleSummarizer:
 
     def detect_article_type(self, article_text: str) -> dict:
         """
-        Detect the type of article using Claude Haiku
-        Returns a dict with 'type' and 'confidence' keys
+        Detect the type of article using Claude
+        Returns a dict with 'type' and 'explanation' keys
         """
         if not article_text:
             raise ValueError("Article text is required for type detection")
 
-        prompt = """Analyze this article and determine its type. Choose exactly one of these four options:
+        prompt = """You are an expert journalism classifier. Analyze this article and determine its type.
 
-1. "news" - Breaking news, current events reporting, factual developments and news stories
-2. "op-ed" - Opinion pieces, editorial columns, argumentative pieces by named authors
-3. "feature" - In-depth articles, long form articles, investigative pieces, long analysis articles
-4. "interview" - Articles centered on the subject's own words, including conversational tone or quotes interwoven with minimal interpretation; often includes direct quotes and may feature less structure than traditional interviews
+DEFINITIONS:
 
-Respond with ONLY the type (news, op-ed, feature, or interview) followed by a brief explanation in parentheses.
-Example: "news (breaking story about recent events)"
+1. NEWS - Recent events, announcements, or developments being reported
+   - Reports what happened, when, where, who was involved
+   - Focuses on facts and timeliness
+   - Includes: breaking news, earnings reports, policy announcements, court decisions, data releases
+   - Key indicators: "announced", "said", "reported", "revealed", dates/times, official sources
+
+2. OP-ED - Opinion piece expressing the author's personal viewpoint
+   - Contains clear argument or thesis
+   - Uses "I" or "we" from author's perspective
+   - Makes recommendations or calls to action
+   - Author's credentials usually mentioned
+   - Key indicators: evaluative language, personal pronouns, should/must statements
+
+3. FEATURE - Human interest, lifestyle, or trend pieces with narrative elements
+   - Profile pieces about people/organizations
+   - Trend analysis or cultural phenomena
+   - Lifestyle, travel, food, arts coverage
+   - Often has narrative structure or storytelling elements
+   - NOT just any long article - must have feature journalism characteristics
+   - Key indicators: descriptive scenes, personal anecdotes, broader themes beyond news
+
+4. INTERVIEW - Article primarily presenting someone's views through Q&A or extensive quotes
+   - Q&A format OR
+   - Article where 50%+ is direct quotes from one person
+   - Focuses on interviewee's thoughts/experiences
+   - May have brief intro but bulk is their words
+   - Key indicators: question-answer structure, "says", extensive quotation marks
+
+CLASSIFICATION RULES:
+- If reporting recent events/announcements → NEWS (even if long or analytical)
+- If expressing author's opinion → OP-ED
+- If Q&A or mostly one person's quotes → INTERVIEW
+- Only classify as FEATURE if it has clear feature journalism elements (not just because it's long)
+
+Respond with ONLY: type (reason in parentheses)
+Example: "news (reports CBO announcement about tariff impacts)"
 
 Article text:
-""" + article_text
+""" + article_text[:3000]  # Limit to first 3000 chars to avoid token limits
 
         try:
-            # Use Claude Haiku for faster, cheaper type detection
+            # Use Claude Haiku for speed
             message = self.anthropic.messages.create(
-                model="claude-3-haiku-20240307",  # Using Haiku as requested
+                model="claude-3-haiku-20240307",
                 max_tokens=100,
                 messages=[
                     {
