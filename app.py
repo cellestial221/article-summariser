@@ -9,6 +9,28 @@ def copy_to_clipboard(text: str):
     pyperclip.copy(text)
     st.success("Copied to clipboard!")
 
+def remove_publication_from_summary(summary: str) -> str:
+    """Remove publication name from the beginning of summary"""
+    if not summary:
+        return summary
+
+    # Patterns to match just the publication name at the start
+    patterns = [
+        r'^([^"]+?)\s+(reports that)',  # "Publication reports that" → "reports that"
+        r'^([^"]+?)\s+(carries an interview)',  # "Publication carries an interview" → "carries an interview"
+        r'^([^"]+?)\s+(carries an op-ed)',  # "Publication carries an op-ed" → "carries an op-ed"
+        r'^([^"]+?)\s+(carries a feature)'  # "Publication carries a feature" → "carries a feature"
+    ]
+
+    for pattern in patterns:
+        match = re.match(pattern, summary, re.IGNORECASE)
+        if match:
+            # Keep everything after the publication name, without capitalizing
+            remaining = match.group(2) + summary[match.end():]
+            return remaining
+
+    return summary
+
 def get_unique_key():
     """Generate a unique key based on the form reset counter"""
     return f"{st.session_state.get('form_reset_counter', 0)}"
@@ -256,7 +278,7 @@ def main():
             # Option to use AI analysis
             use_ai_analysis = st.checkbox(
                 "🤖 Let AI analyze and determine the article type",
-                help="Use Claude AI to automatically detect whether this is news, op-ed, feature, or interview",
+                help="Use Claude AI to automatically detect whether this is news, op-ed, feature, or interview. Note: AI analysis may occasionally misclassify articles.",
                 key=f'use_ai_analysis_{unique_key}'
             )
 
@@ -264,6 +286,9 @@ def main():
                 # AI Detection Path
                 if st.button("🔍 Analyze Article Type", type="secondary"):
                     handle_type_detection()
+
+                # Add small disclaimer
+                st.caption("💡 AI detection is generally accurate but may occasionally misclassify. You can always double-check the result.")
 
                 # Show detected type
                 if st.session_state.get('detected_type'):
@@ -383,12 +408,17 @@ def main():
                     # Display the summary text
                     st.text(st.session_state['summary'])
 
-                # Action buttons in a row
-                col_copy, col_new = st.columns(2)
+                # Action buttons in a row - now three buttons
+                col_copy, col_copy_no_pub, col_new = st.columns(3)
 
                 with col_copy:
-                    if st.button("📋 Copy to Clipboard", type="primary", use_container_width=True):
+                    if st.button("📋 Copy Full", type="primary", use_container_width=True, help="Copy complete summary including publication name"):
                         copy_to_clipboard(st.session_state['summary'])
+
+                with col_copy_no_pub:
+                    if st.button("📄 Copy Clean", type="secondary", use_container_width=True, help="Copy summary without publication name"):
+                        clean_summary = remove_publication_from_summary(st.session_state['summary'])
+                        copy_to_clipboard(clean_summary)
 
                 with col_new:
                     st.button("🔄 New Article",
