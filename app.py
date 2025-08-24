@@ -46,6 +46,7 @@ def reset_form():
     st.session_state['client_mention_count'] = None
     st.session_state['client_validation_done'] = False
     st.session_state['scraped_content'] = None
+    st.session_state['detected_language'] = None
 
 def safe_display_text(text):
     """Safely display text content, handling potential encoding or formatting issues"""
@@ -90,6 +91,17 @@ def validate_client_mention(article_text: str, client_name: str):
     count = count_client_mentions(article_text, client_name)
     return count
 
+def detect_article_language(article_text: str):
+    """Detect the language of the article and store in session state"""
+    if 'summarizer' not in st.session_state or not article_text:
+        return
+
+    try:
+        language_info = st.session_state.summarizer.detect_language(article_text)
+        st.session_state['detected_language'] = language_info
+    except Exception as e:
+        st.session_state['detected_language'] = {'language': 'Unknown', 'is_english': True, 'error': str(e)}
+
 def handle_url_scraping():
     """Handle URL scraping"""
     unique_key = get_unique_key()
@@ -127,6 +139,9 @@ def handle_url_scraping():
 
             if result.get('author'):
                 st.session_state[f'author_{unique_key}'] = result['author']
+
+            # Detect language of scraped content
+            detect_article_language(result['text'])
 
             # Success message
             method = result.get('method', 'unknown')
@@ -327,12 +342,24 @@ def main():
         st.session_state['client_validation_done'] = False
     if 'scraped_content' not in st.session_state:
         st.session_state['scraped_content'] = None
+    if 'detected_language' not in st.session_state:
+        st.session_state['detected_language'] = None
 
     # Title and description
     st.title("📰 Article Summariser")
-    st.markdown("""
+
+    # Check if language detection is available and show info
+    try:
+        import fast_langdetect
+        langdetect_status = "✅ Fast language detection enabled (fast-langdetect)"
+    except ImportError:
+        langdetect_status = "⚠️ Fast language detection not installed - install 'fast-langdetect' for automatic language detection"
+
+    st.markdown(f"""
         This app summarises articles using Claude AI. Simply input your API key and provide the article either by URL or text.
-        The summary will maintain British English spelling.
+        The summary will maintain British English spelling and automatically translate non-English articles.
+
+        *{langdetect_status}*
     """)
 
     # API Key input section
@@ -408,14 +435,56 @@ def main():
                 height=180,
                 placeholder="Paste your article text here or use the URL scraper above...",
                 key=f'article_text_{unique_key}',
-                help="This will be auto-filled if you successfully scraped a URL"
+                help="This will be auto-filled if you successfully scraped a URL",
+                on_change=lambda: detect_article_language(st.session_state.get(f'article_text_{unique_key}', ''))
             )
 
-            # Show character count for the article
+            # Show character count and language detection for the article
             if article_text_value:
                 char_count = len(article_text_value)
                 word_count = len(article_text_value.split())
-                st.caption(f"📊 {char_count:,} characters, ~{word_count:,} words")
+
+                # Display stats in columns
+                stat_col1, stat_col2 = st.columns(2)
+                with stat_col1:
+                    st.caption(f"📊 {char_count:,} characters, ~{word_count:,} words")
+
+                with stat_col2:
+                    if st.session_state.get('detected_language'):
+                        lang_info = st.session_state['detected_language']
+                        language = lang_info.get('language', 'Unknown')
+                        confidence = lang_info.get('confidence')
+                        method = lang_info.get('method', 'unknown')
+                        error = lang_info.get('error')
+
+                        # Build detection method tooltip
+                        if method == 'fast-langdetect':
+                            method_text = "⚡"  # Lightning emoji for fast detection
+                            tooltip = "Detected using fast-langdetect (offline)"
+                        elif method == 'none':
+                            method_text = "❌"
+                            tooltip = "fast-langdetect not available"
+                        else:
+                            method_text = ""
+                            tooltip = ""
+
+                        # Show error if present (for debugging)
+                        if error and language == 'Unknown':
+                            st.caption(f"🌍 Language detection unavailable {method_text}", help=f"{tooltip}. Error: {error}")
+                        elif confidence and confidence > 0:
+                            confidence_pct = int(confidence * 100)
+                            if not lang_info.get('is_english', True):
+                                st.caption(f"🌍 Language: **{language}** ({confidence_pct}% conf.) {method_text} - will translate", help=tooltip)
+                            else:
+                                st.caption(f"🌍 Language: **{language}** ({confidence_pct}% conf.) {method_text}", help=tooltip)
+                        else:
+                            if not lang_info.get('is_english', True):
+                                st.caption(f"🌍 Language: **{language}** {method_text} (will translate)", help=tooltip)
+                            else:
+                                if language == 'Unknown':
+                                    st.caption(f"🌍 Language: **{language}** {method_text}", help=f"{tooltip}. {'Error: ' + error if error else 'Language could not be detected'}")
+                                else:
+                                    st.caption(f"🌍 Language: **{language}** {method_text}", help=tooltip)
 
             # Step 4: Article Type Determination
             st.subheader("Article Type")
@@ -597,11 +666,17 @@ def main():
 
                     **🌐 URL Scraping**: Automatically extract articles from most news websites
 
+                    **⚡ Fast Language Detection**: Ultra-fast offline detection with 95% accuracy (when fast-langdetect installed)
+
+                    **🌍 Multilingual Support**: Automatically detects article language and translates to British English
+
                     **🤖 AI Analysis**: Let Claude Haiku automatically detect the article type
 
                     **📋 Manual Selection**: Choose the type yourself from the dropdown
 
                     **🏢 Client Tracking**: Track how a specific client is mentioned
+
+                    **🇬🇧 UK Context**: Summaries are optimized for UK readers, avoiding redundant UK labels
 
                     ---
 
