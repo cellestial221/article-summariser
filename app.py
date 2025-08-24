@@ -1,6 +1,7 @@
 import streamlit as st
 import pyperclip
 from summarizer import ArticleSummarizer
+from article_scraper import ArticleScraper
 import os
 import re
 
@@ -44,6 +45,7 @@ def reset_form():
     st.session_state['detection_explanation'] = None
     st.session_state['client_mention_count'] = None
     st.session_state['client_validation_done'] = False
+    st.session_state['scraped_content'] = None
 
 def safe_display_text(text):
     """Safely display text content, handling potential encoding or formatting issues"""
@@ -88,6 +90,64 @@ def validate_client_mention(article_text: str, client_name: str):
     count = count_client_mentions(article_text, client_name)
     return count
 
+def handle_url_scraping():
+    """Handle URL scraping"""
+    unique_key = get_unique_key()
+    url = st.session_state.get(f'article_url_{unique_key}', '').strip()
+
+    if not url:
+        st.session_state['error_message'] = "Please enter a URL"
+        return
+
+    # Initialize scraper
+    scraper = ArticleScraper()
+
+    # Create a placeholder for the progress indicator
+    progress_placeholder = st.empty()
+
+    try:
+        with progress_placeholder.container():
+            with st.spinner('🌐 Fetching article content... This may take a few seconds'):
+                result = scraper.scrape_article(url)
+
+        if result['success']:
+            # Store the scraped content
+            st.session_state['scraped_content'] = {
+                'text': result['text'],
+                'publication': result.get('publication', ''),
+                'author': result.get('author', ''),
+                'title': result.get('title', '')
+            }
+
+            # Pre-fill the form fields
+            if result.get('publication'):
+                st.session_state[f'publication_{unique_key}'] = result['publication']
+
+            st.session_state[f'article_text_{unique_key}'] = result['text']
+
+            if result.get('author'):
+                st.session_state[f'author_{unique_key}'] = result['author']
+
+            # Success message
+            method = result.get('method', 'unknown')
+            success_msg = f"✅ Article successfully extracted using {method}!"
+
+            if result.get('paywall_warning'):
+                success_msg += "\n⚠️ Note: This site often has paywalled content. If the extracted text seems incomplete, you may need to paste it manually."
+
+            st.success(success_msg)
+
+        else:
+            st.session_state['error_message'] = result.get('error', 'Failed to extract article')
+            # Still try to fill publication name if we got it
+            if result.get('publication'):
+                st.session_state[f'publication_{unique_key}'] = result['publication']
+
+    except Exception as e:
+        st.session_state['error_message'] = f"Error scraping URL: {str(e)}"
+    finally:
+        progress_placeholder.empty()
+
 def handle_type_detection():
     """Handle article type detection"""
     if 'summarizer' not in st.session_state:
@@ -115,7 +175,17 @@ def handle_type_detection():
         st.session_state['detection_explanation'] = result['explanation']
         st.success(f"Article type detected: **{result['type'].title()}** - {result['explanation']}")
     except Exception as e:
-        st.session_state['error_message'] = f"Error detecting article type: {str(e)}"
+        error_message = str(e)
+
+        # Provide specific error messages based on the error type
+        if "529" in error_message or "overloaded" in error_message.lower():
+            st.session_state['error_message'] = "⚠️ Anthropic's servers are currently overloaded. Please wait a moment and try again."
+        elif "rate_limit" in error_message.lower() or "429" in error_message:
+            st.session_state['error_message'] = "⏱️ Rate limit exceeded. Please wait a minute before trying again."
+        elif "500" in error_message or "502" in error_message or "503" in error_message:
+            st.session_state['error_message'] = "🔧 Anthropic is experiencing server issues. Please try again in a few moments."
+        else:
+            st.session_state['error_message'] = f"Error detecting article type: {error_message}"
     finally:
         progress_placeholder.empty()
 
@@ -188,7 +258,19 @@ def handle_submit():
         st.session_state['summary'] = safe_display_text(summary)
 
     except Exception as e:
-        st.session_state['error_message'] = f"An error occurred: {str(e)}"
+        error_message = str(e)
+
+        # Provide specific error messages based on the error type
+        if "529" in error_message or "overloaded" in error_message.lower():
+            st.session_state['error_message'] = "⚠️ Anthropic's servers are currently overloaded. Please wait a moment and try again."
+        elif "rate_limit" in error_message.lower() or "429" in error_message:
+            st.session_state['error_message'] = "⏱️ Rate limit exceeded. Please wait a minute before trying again."
+        elif "500" in error_message or "502" in error_message or "503" in error_message:
+            st.session_state['error_message'] = "🔧 Anthropic is experiencing server issues. Please try again in a few moments."
+        elif "network" in error_message.lower() or "connection" in error_message.lower():
+            st.session_state['error_message'] = "🌐 Network connection error. Please check your connection and try again."
+        else:
+            st.session_state['error_message'] = f"An error occurred: {error_message}"
 
 def initialize_summarizer(api_key: str):
     """Initialize the summarizer with the provided API key"""
@@ -199,7 +281,23 @@ def initialize_summarizer(api_key: str):
             st.session_state['api_key_valid'] = True
         st.success("API key validated successfully!")
     except Exception as e:
-        st.error(f"Invalid API key: {str(e)}")
+        error_message = str(e)
+
+        # Parse different types of errors
+        if "401" in error_message or "invalid_api_key" in error_message.lower():
+            st.error("❌ Invalid API key. Please check your API key and try again.")
+            st.info("💡 Get your API key from https://console.anthropic.com/")
+        elif "529" in error_message or "overloaded" in error_message.lower():
+            st.warning("⚠️ Anthropic's servers are currently overloaded. Please try again in a few moments.")
+            st.info("💡 This is a temporary issue on Anthropic's end. Your API key may be valid - just wait a minute and try again.")
+        elif "rate_limit" in error_message.lower() or "429" in error_message:
+            st.warning("⏱️ Rate limit exceeded. Please wait a moment before trying again.")
+        elif "network" in error_message.lower() or "connection" in error_message.lower():
+            st.error("🌐 Network connection error. Please check your internet connection and try again.")
+        else:
+            st.error(f"Error validating API key: {error_message}")
+            st.info("💡 If this persists, try generating a new API key at https://console.anthropic.com/")
+
         st.session_state['api_key_valid'] = False
 
 def main():
@@ -227,11 +325,13 @@ def main():
         st.session_state['client_mention_count'] = None
     if 'client_validation_done' not in st.session_state:
         st.session_state['client_validation_done'] = False
+    if 'scraped_content' not in st.session_state:
+        st.session_state['scraped_content'] = None
 
     # Title and description
     st.title("📰 Article Summariser")
     st.markdown("""
-        This app summarises articles using Claude AI. Simply input your API key and the article details below.
+        This app summarises articles using Claude AI. Simply input your API key and provide the article either by URL or text.
         The summary will maintain British English spelling.
     """)
 
@@ -257,22 +357,67 @@ def main():
             # Input fields with dynamic keys
             unique_key = get_unique_key()
 
-            # Step 1: Publication Name
+            # Step 1: Choose input method
+            st.subheader("📝 Article Input")
+            input_method = st.radio(
+                "How would you like to provide the article?",
+                ["Enter URL", "Paste Text"],
+                horizontal=True,
+                key=f'input_method_{unique_key}'
+            )
+
+            if input_method == "Enter URL":
+                # URL input and scraping
+                article_url = st.text_input(
+                    "Article URL",
+                    placeholder="https://www.example.com/article",
+                    help="Enter the full URL of the article you want to summarize",
+                    key=f'article_url_{unique_key}'
+                )
+
+                col_scrape, col_clear = st.columns(2)
+                with col_scrape:
+                    if st.button("🔍 Fetch Article", type="primary", use_container_width=True):
+                        handle_url_scraping()
+                with col_clear:
+                    st.button("🔄 Clear",
+                             type="secondary",
+                             use_container_width=True,
+                             on_click=reset_form)
+
+                # Show info about scraping
+                with st.expander("ℹ️ About URL scraping"):
+                    st.markdown("""
+                    - The scraper works with most news websites
+                    - Sites with paywalls may not work - you'll need to paste the text manually
+                    - The publication name is auto-detected from the URL
+                    - If scraping fails, you can always switch to manual text input
+                    """)
+
+            # Step 2: Publication Name (always visible, may be pre-filled from scraping)
             st.text_input(
                 "Publication Name",
                 placeholder="e.g., The Guardian",
-                key=f'publication_{unique_key}'
+                key=f'publication_{unique_key}',
+                help="This may be auto-filled if you used URL scraping"
             )
 
-            # Step 2: Article Text (always in the same place)
-            st.text_area(
+            # Step 3: Article Text (always visible, may be pre-filled from scraping)
+            article_text_value = st.text_area(
                 "Article Text",
                 height=180,
-                placeholder="Paste your article text here...",
-                key=f'article_text_{unique_key}'
+                placeholder="Paste your article text here or use the URL scraper above...",
+                key=f'article_text_{unique_key}',
+                help="This will be auto-filled if you successfully scraped a URL"
             )
 
-            # Step 3: Article Type Determination
+            # Show character count for the article
+            if article_text_value:
+                char_count = len(article_text_value)
+                word_count = len(article_text_value.split())
+                st.caption(f"📊 {char_count:,} characters, ~{word_count:,} words")
+
+            # Step 4: Article Type Determination
             st.subheader("Article Type")
 
             # Option to use AI analysis
@@ -325,7 +470,7 @@ def main():
                         help=f"Required for {article_type} articles"
                     )
 
-            # Step 4: Summary preferences (integrated into main flow)
+            # Step 5: Summary preferences (integrated into main flow)
             st.number_input(
                 "Number of sentences in summary",
                 min_value=2,
@@ -434,18 +579,33 @@ def main():
                     st.markdown("""
                     ### 📖 How to use:
 
-                    **Step 1:** Enter publication name
-                    **Step 2:** Paste your article text
-                    **Step 3:** Select article type manually **OR** check the AI analysis option
-                    **Step 4:** Set summary length and generate
+                    **Option A: URL Scraping (New!)**
+                    1. Select "Enter URL" and paste the article URL
+                    2. Click "Fetch Article" to automatically extract the text
+                    3. The publication name and article text will be auto-filled
+                    4. Continue with type selection and generate summary
+
+                    **Option B: Manual Input**
+                    1. Select "Paste Text" and enter publication name
+                    2. Paste your article text in the text box
+                    3. Select article type (manually or with AI)
+                    4. Set summary length and generate
 
                     ---
 
-                    **🤖 AI Analysis**: Let Claude Haiku automatically detect whether your article is news, an op-ed, feature, or interview
+                    **✨ Features:**
 
-                    **📋 Manual Selection**: Choose the type yourself from the dropdown (default)
+                    **🌐 URL Scraping**: Automatically extract articles from most news websites
 
-                    **🏢 Client Tracking**: Track how a specific client is mentioned to ensure accurate representation in the summary
+                    **🤖 AI Analysis**: Let Claude Haiku automatically detect the article type
+
+                    **📋 Manual Selection**: Choose the type yourself from the dropdown
+
+                    **🏢 Client Tracking**: Track how a specific client is mentioned
+
+                    ---
+
+                    **⚠️ Note on Paywalls:** Some sites have paywalls that prevent automatic scraping. If scraping fails, you can always paste the text manually.
                     """)
 
 if __name__ == "__main__":
