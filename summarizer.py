@@ -1,11 +1,16 @@
-from anthropic import Anthropic
 import ftfy
+from anthropic import Anthropic
+
 try:
     from fast_langdetect import detect as fast_detect
+
     FAST_LANGDETECT_AVAILABLE = True
 except ImportError:
     FAST_LANGDETECT_AVAILABLE = False
-    print("Warning: fast-langdetect not installed. Language detection will use Claude API.")
+    print(
+        "Warning: fast-langdetect not installed. Language detection will use Claude API."
+    )
+
 
 class ArticleSummarizer:
     def __init__(self, api_key: str):
@@ -21,7 +26,7 @@ class ArticleSummarizer:
             self.anthropic.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=10,
-                messages=[{"role": "user", "content": "Test"}]
+                messages=[{"role": "user", "content": "Test"}],
             )
         except Exception as e:
             raise ValueError(f"Invalid API key: {str(e)}")
@@ -30,16 +35,16 @@ class ArticleSummarizer:
         """Extract text content from Claude API response structure"""
         try:
             # Handle different response formats
-            if hasattr(response, 'content') and response.content:
+            if hasattr(response, "content") and response.content:
                 # Handle list of content blocks
                 if isinstance(response.content, list) and len(response.content) > 0:
                     content_block = response.content[0]
-                    if hasattr(content_block, 'text'):
+                    if hasattr(content_block, "text"):
                         return content_block.text
-                    elif isinstance(content_block, dict) and 'text' in content_block:
-                        return content_block['text']
+                    elif isinstance(content_block, dict) and "text" in content_block:
+                        return content_block["text"]
                 # Handle direct content
-                elif hasattr(response.content, 'text'):
+                elif hasattr(response.content, "text"):
                     return response.content.text
 
             # Fallback to string conversion
@@ -61,8 +66,9 @@ class ArticleSummarizer:
     def _clean_response(self, summary: str) -> str:
         """Clean the response from any formatting artifacts"""
         # Remove any TextBlock formatting or other code-like elements
-        if 'TextBlock' in summary:
+        if "TextBlock" in summary:
             import re
+
             match = re.search(r'text="([^"]+)"', summary)
             if match:
                 summary = match.group(1)
@@ -71,42 +77,54 @@ class ArticleSummarizer:
         summary = self._fix_api_response_encoding(summary)
 
         # Remove any remaining artifacts
-        summary = summary.replace('TextBlock(text="', '').replace('", type="text")', '')
+        summary = summary.replace('TextBlock(text="', "").replace('", type="text")', "")
 
         # Remove line breaks between sentences but preserve the space
         # This handles various types of line breaks
-        summary = summary.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
+        summary = summary.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
         # Clean up any multiple spaces that may have been created
         import re
-        summary = re.sub(r'\s+', ' ', summary)
+
+        summary = re.sub(r"\s+", " ", summary)
+
+        # Replace double quotes with single quotes
+        summary = summary.replace('"', "'")
 
         return summary.strip()
 
-    def _build_client_mention_context(self, client_name: str, mention_count: int) -> str:
+    def _build_client_mention_context(
+        self, client_name: str, mention_count: int
+    ) -> str:
         """Build contextual instructions for client mentions in the summary"""
         if not client_name or mention_count == 0:
             return ""
 
         if mention_count == 1:
-            context = (f"\n\nIMPORTANT: The client '{client_name}' is mentioned once in this article. "
-                      f"You must accurately reflect this single mention in the summary with appropriate context. "
-                      f"If the mention is brief or peripheral, do not overemphasise it (especially not in the first sentence). "
-                      f"If '{client_name}' is central to the story, position it appropriately. "
-                      f"Be accurate about HOW '{client_name}' is described or referenced in the article.")
+            context = (
+                f"\n\nIMPORTANT: The client '{client_name}' is mentioned once in this article. "
+                f"You must accurately reflect this single mention in the summary with appropriate context. "
+                f"If the mention is brief or peripheral, do not overemphasise it (especially not in the first sentence). "
+                f"If '{client_name}' is central to the story, position it appropriately. "
+                f"Be accurate about HOW '{client_name}' is described or referenced in the article."
+            )
         elif mention_count <= 3:
-            context = (f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article. "
-                      f"You must accurately reflect these mentions in the summary with appropriate weight and context. "
-                      f"If the mentions are brief or peripheral, do not overemphasise them. "
-                      f"If '{client_name}' is central to the story, ensure this is clear in the summary. "
-                      f"Be accurate about HOW '{client_name}' is described or referenced, maintaining the article's perspective.")
+            context = (
+                f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article. "
+                f"You must accurately reflect these mentions in the summary with appropriate weight and context. "
+                f"If the mentions are brief or peripheral, do not overemphasise them. "
+                f"If '{client_name}' is central to the story, ensure this is clear in the summary. "
+                f"Be accurate about HOW '{client_name}' is described or referenced, maintaining the article's perspective."
+            )
         else:
-            context = (f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article, "
-                      f"suggesting they are likely a significant element of the story. "
-                      f"You must accurately reflect '{client_name}'s prominence in the summary while maintaining overall balance. "
-                      f"If '{client_name}' is the main focus, this should be clear (potentially in the first sentence). "
-                      f"If they are one of several key elements, position them appropriately. "
-                      f"Be precise about HOW '{client_name}' is described, what role they play, and maintain the article's tone and perspective.")
+            context = (
+                f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article, "
+                f"suggesting they are likely a significant element of the story. "
+                f"You must accurately reflect '{client_name}'s prominence in the summary while maintaining overall balance. "
+                f"If '{client_name}' is the main focus, this should be clear (potentially in the first sentence). "
+                f"If they are one of several key elements, position them appropriately. "
+                f"Be precise about HOW '{client_name}' is described, what role they play, and maintain the article's tone and perspective."
+            )
 
         return context
 
@@ -127,103 +145,103 @@ class ArticleSummarizer:
                 result = fast_detect(clean_text, low_memory=True)
 
                 # Map language codes to full names
-                lang_code = result['lang'].lower()
-                confidence = result['score']
+                lang_code = result["lang"].lower()
+                confidence = result["score"]
 
                 # Common language code mappings
                 lang_map = {
-                    'en': 'English',
-                    'es': 'Spanish',
-                    'fr': 'French',
-                    'de': 'German',
-                    'it': 'Italian',
-                    'pt': 'Portuguese',
-                    'nl': 'Dutch',
-                    'pl': 'Polish',
-                    'ru': 'Russian',
-                    'zh': 'Chinese',
-                    'ja': 'Japanese',
-                    'ko': 'Korean',
-                    'ar': 'Arabic',
-                    'he': 'Hebrew',
-                    'hi': 'Hindi',
-                    'tr': 'Turkish',
-                    'sv': 'Swedish',
-                    'da': 'Danish',
-                    'no': 'Norwegian',
-                    'fi': 'Finnish',
-                    'el': 'Greek',
-                    'cs': 'Czech',
-                    'hu': 'Hungarian',
-                    'ro': 'Romanian',
-                    'bg': 'Bulgarian',
-                    'uk': 'Ukrainian',
-                    'vi': 'Vietnamese',
-                    'th': 'Thai',
-                    'id': 'Indonesian',
-                    'ms': 'Malay',
-                    'fa': 'Persian',
-                    'ur': 'Urdu',
-                    'bn': 'Bengali',
-                    'ta': 'Tamil',
-                    'te': 'Telugu',
-                    'ml': 'Malayalam',
-                    'ca': 'Catalan',
-                    'eu': 'Basque',
-                    'gl': 'Galician',
-                    'hr': 'Croatian',
-                    'sr': 'Serbian',
-                    'sk': 'Slovak',
-                    'sl': 'Slovenian',
-                    'lt': 'Lithuanian',
-                    'lv': 'Latvian',
-                    'et': 'Estonian',
-                    'mk': 'Macedonian',
-                    'sq': 'Albanian',
-                    'hy': 'Armenian',
-                    'ka': 'Georgian',
-                    'az': 'Azerbaijani',
-                    'kk': 'Kazakh',
-                    'uz': 'Uzbek',
-                    'tg': 'Tajik',
-                    'ky': 'Kyrgyz',
-                    'tt': 'Tatar',
-                    'ba': 'Bashkir',
-                    'cv': 'Chuvash',
-                    'ce': 'Chechen',
-                    'mn': 'Mongolian',
-                    'ne': 'Nepali',
-                    'si': 'Sinhala',
-                    'km': 'Khmer',
-                    'lo': 'Lao',
-                    'my': 'Burmese',
-                    'am': 'Amharic',
-                    'ti': 'Tigrinya',
-                    'yo': 'Yoruba',
-                    'sw': 'Swahili',
-                    'zu': 'Zulu',
-                    'xh': 'Xhosa',
-                    'af': 'Afrikaans',
-                    'cy': 'Welsh',
-                    'ga': 'Irish',
-                    'gd': 'Scottish Gaelic',
-                    'is': 'Icelandic',
-                    'mt': 'Maltese',
-                    'lb': 'Luxembourgish',
-                    'tl': 'Tagalog',
-                    'haw': 'Hawaiian',
-                    'sm': 'Samoan',
-                    'mg': 'Malagasy',
-                    'la': 'Latin'
+                    "en": "English",
+                    "es": "Spanish",
+                    "fr": "French",
+                    "de": "German",
+                    "it": "Italian",
+                    "pt": "Portuguese",
+                    "nl": "Dutch",
+                    "pl": "Polish",
+                    "ru": "Russian",
+                    "zh": "Chinese",
+                    "ja": "Japanese",
+                    "ko": "Korean",
+                    "ar": "Arabic",
+                    "he": "Hebrew",
+                    "hi": "Hindi",
+                    "tr": "Turkish",
+                    "sv": "Swedish",
+                    "da": "Danish",
+                    "no": "Norwegian",
+                    "fi": "Finnish",
+                    "el": "Greek",
+                    "cs": "Czech",
+                    "hu": "Hungarian",
+                    "ro": "Romanian",
+                    "bg": "Bulgarian",
+                    "uk": "Ukrainian",
+                    "vi": "Vietnamese",
+                    "th": "Thai",
+                    "id": "Indonesian",
+                    "ms": "Malay",
+                    "fa": "Persian",
+                    "ur": "Urdu",
+                    "bn": "Bengali",
+                    "ta": "Tamil",
+                    "te": "Telugu",
+                    "ml": "Malayalam",
+                    "ca": "Catalan",
+                    "eu": "Basque",
+                    "gl": "Galician",
+                    "hr": "Croatian",
+                    "sr": "Serbian",
+                    "sk": "Slovak",
+                    "sl": "Slovenian",
+                    "lt": "Lithuanian",
+                    "lv": "Latvian",
+                    "et": "Estonian",
+                    "mk": "Macedonian",
+                    "sq": "Albanian",
+                    "hy": "Armenian",
+                    "ka": "Georgian",
+                    "az": "Azerbaijani",
+                    "kk": "Kazakh",
+                    "uz": "Uzbek",
+                    "tg": "Tajik",
+                    "ky": "Kyrgyz",
+                    "tt": "Tatar",
+                    "ba": "Bashkir",
+                    "cv": "Chuvash",
+                    "ce": "Chechen",
+                    "mn": "Mongolian",
+                    "ne": "Nepali",
+                    "si": "Sinhala",
+                    "km": "Khmer",
+                    "lo": "Lao",
+                    "my": "Burmese",
+                    "am": "Amharic",
+                    "ti": "Tigrinya",
+                    "yo": "Yoruba",
+                    "sw": "Swahili",
+                    "zu": "Zulu",
+                    "xh": "Xhosa",
+                    "af": "Afrikaans",
+                    "cy": "Welsh",
+                    "ga": "Irish",
+                    "gd": "Scottish Gaelic",
+                    "is": "Icelandic",
+                    "mt": "Maltese",
+                    "lb": "Luxembourgish",
+                    "tl": "Tagalog",
+                    "haw": "Hawaiian",
+                    "sm": "Samoan",
+                    "mg": "Malagasy",
+                    "la": "Latin",
                 }
 
                 language = lang_map.get(lang_code, lang_code.upper())
 
                 return {
-                    'language': language,
-                    'is_english': lang_code == 'en',
-                    'confidence': confidence,
-                    'method': 'fast-langdetect'
+                    "language": language,
+                    "is_english": lang_code == "en",
+                    "confidence": confidence,
+                    "method": "fast-langdetect",
                 }
 
             except Exception as e:
@@ -246,12 +264,7 @@ Article text:
             message = self.anthropic.messages.create(
                 model="claude-3-haiku-20240307",
                 max_tokens=20,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             response_text = self._extract_claude_content(message)
@@ -259,50 +272,50 @@ Article text:
 
             # Normalize common language names
             language_lower = language.lower()
-            if 'english' in language_lower:
-                language = 'English'
-            elif 'spanish' in language_lower or 'español' in language_lower:
-                language = 'Spanish'
-            elif 'french' in language_lower or 'français' in language_lower:
-                language = 'French'
-            elif 'german' in language_lower or 'deutsch' in language_lower:
-                language = 'German'
-            elif 'italian' in language_lower or 'italiano' in language_lower:
-                language = 'Italian'
-            elif 'portuguese' in language_lower or 'português' in language_lower:
-                language = 'Portuguese'
-            elif 'dutch' in language_lower or 'nederlands' in language_lower:
-                language = 'Dutch'
-            elif 'chinese' in language_lower or '中文' in language_lower:
-                language = 'Chinese'
-            elif 'japanese' in language_lower or '日本語' in language_lower:
-                language = 'Japanese'
-            elif 'korean' in language_lower or '한국어' in language_lower:
-                language = 'Korean'
-            elif 'arabic' in language_lower or 'عربي' in language_lower:
-                language = 'Arabic'
-            elif 'russian' in language_lower or 'русский' in language_lower:
-                language = 'Russian'
-            elif 'polish' in language_lower or 'polski' in language_lower:
-                language = 'Polish'
-            elif 'hebrew' in language_lower or 'עברית' in language_lower:
-                language = 'Hebrew'
-            elif 'hindi' in language_lower or 'हिन्दी' in language_lower:
-                language = 'Hindi'
+            if "english" in language_lower:
+                language = "English"
+            elif "spanish" in language_lower or "español" in language_lower:
+                language = "Spanish"
+            elif "french" in language_lower or "français" in language_lower:
+                language = "French"
+            elif "german" in language_lower or "deutsch" in language_lower:
+                language = "German"
+            elif "italian" in language_lower or "italiano" in language_lower:
+                language = "Italian"
+            elif "portuguese" in language_lower or "português" in language_lower:
+                language = "Portuguese"
+            elif "dutch" in language_lower or "nederlands" in language_lower:
+                language = "Dutch"
+            elif "chinese" in language_lower or "中文" in language_lower:
+                language = "Chinese"
+            elif "japanese" in language_lower or "日本語" in language_lower:
+                language = "Japanese"
+            elif "korean" in language_lower or "한국어" in language_lower:
+                language = "Korean"
+            elif "arabic" in language_lower or "عربي" in language_lower:
+                language = "Arabic"
+            elif "russian" in language_lower or "русский" in language_lower:
+                language = "Russian"
+            elif "polish" in language_lower or "polski" in language_lower:
+                language = "Polish"
+            elif "hebrew" in language_lower or "עברית" in language_lower:
+                language = "Hebrew"
+            elif "hindi" in language_lower or "हिन्दी" in language_lower:
+                language = "Hindi"
 
             return {
-                'language': language,
-                'is_english': language.lower() == 'english',
-                'method': 'claude-api'
+                "language": language,
+                "is_english": language.lower() == "english",
+                "method": "claude-api",
             }
 
         except Exception as e:
             # Default to English if detection fails
             return {
-                'language': 'English',
-                'is_english': True,
-                'error': str(e),
-                'method': 'default'
+                "language": "English",
+                "is_english": True,
+                "error": str(e),
+                "method": "default",
             }
 
     def detect_article_type(self, article_text: str) -> dict:
@@ -362,12 +375,7 @@ Article text:
             message = self.anthropic.messages.create(
                 model="claude-3-haiku-20240307",
                 max_tokens=100,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             response_text = self._extract_claude_content(message)
@@ -378,36 +386,36 @@ Article text:
 
             # Determine the detected type
             detected_type = None
-            if response_lower.startswith('news'):
-                detected_type = 'news'
-            elif response_lower.startswith('op-ed'):
-                detected_type = 'op-ed'
-            elif response_lower.startswith('feature'):
-                detected_type = 'feature'
-            elif response_lower.startswith('interview'):
-                detected_type = 'interview'
+            if response_lower.startswith("news"):
+                detected_type = "news"
+            elif response_lower.startswith("op-ed"):
+                detected_type = "op-ed"
+            elif response_lower.startswith("feature"):
+                detected_type = "feature"
+            elif response_lower.startswith("interview"):
+                detected_type = "interview"
             else:
                 # Fallback: try to find any of the types in the response
-                for article_type in ['news', 'op-ed', 'feature', 'interview']:
+                for article_type in ["news", "op-ed", "feature", "interview"]:
                     if article_type in response_lower:
                         detected_type = article_type
                         break
 
                 if not detected_type:
-                    detected_type = 'news'  # Default fallback
+                    detected_type = "news"  # Default fallback
 
             # Extract explanation if present
             explanation = ""
-            if '(' in response_text and ')' in response_text:
-                start = response_text.find('(')
-                end = response_text.find(')', start)
+            if "(" in response_text and ")" in response_text:
+                start = response_text.find("(")
+                end = response_text.find(")", start)
                 if start != -1 and end != -1:
-                    explanation = response_text[start+1:end]
+                    explanation = response_text[start + 1 : end]
 
             return {
-                'type': detected_type,
-                'explanation': explanation or "Article type detected",
-                'raw_response': response_text
+                "type": detected_type,
+                "explanation": explanation or "Article type detected",
+                "raw_response": response_text,
             }
 
         except Exception as e:
@@ -417,7 +425,7 @@ Article text:
         """
         Get the system message that establishes Claude's role for concise summarization
         """
-        return """You are an expert news summarizer who specializes in creating SHORT, readable, information-dense summaries while maintaining absolute factual accuracy.
+        return """You are an expert news summarizer who specializes in creating readable information-dense summaries with very short sentences while maintaining absolute factual accuracy.
 
 CRITICAL ACCURACY RULES:
 - NEVER change currencies (if the article mentions dollars, use dollars; if euros, use euros; if pounds, use pounds)
@@ -443,10 +451,17 @@ IMPORTANT: Return the summary as a single continuous paragraph with no line brea
 
 Remember: Readers want maximum information in minimum time with 100% factual accuracy. Think like a telegraph operator who pays per word but NEVER sacrifices accuracy."""
 
-    def get_summary(self, article_text: str, publication: str, article_type: str,
-                   author: str = None, specific_instructions: str = None,
-                   sentence_count: int = 3, client_name: str = None,
-                   client_mention_count: int = None) -> str:
+    def get_summary(
+        self,
+        article_text: str,
+        publication: str,
+        article_type: str,
+        author: str = None,
+        specific_instructions: str = None,
+        sentence_count: int = 3,
+        client_name: str = None,
+        client_mention_count: int = None,
+    ) -> str:
         """
         Get article summary using Claude API
 
@@ -470,8 +485,8 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
 
         # Detect language of the article
         language_info = self.detect_language(article_text)
-        detected_language = language_info['language']
-        is_english = language_info['is_english']
+        detected_language = language_info["language"]
+        is_english = language_info["is_english"]
 
         # Build the specific instructions part if provided
         instruction_text = ""
@@ -481,29 +496,39 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
         # Build client mention context if provided
         client_context = ""
         if client_name and client_mention_count:
-            client_context = self._build_client_mention_context(client_name, client_mention_count)
+            client_context = self._build_client_mention_context(
+                client_name, client_mention_count
+            )
 
         # Build language and spelling instructions
         if is_english:
-            spelling_instruction = ("Use British English spelling conventions (e.g., 'colour', 'realise', 'centre', 'organisation') "
-                                   "but preserve all other details exactly as they appear in the original article, "
-                                   "including currencies, locations, measurements, and proper nouns. "
-                                   "Do not convert currencies to pounds or change any factual details.")
+            spelling_instruction = (
+                "Use British English spelling conventions (e.g., 'colour', 'realise', 'centre', 'organisation') "
+                "but preserve all other details exactly as they appear in the original article, "
+                "including currencies, locations, measurements, and proper nouns. "
+                "Do not convert currencies to pounds or change any factual details."
+            )
         else:
-            spelling_instruction = (f"IMPORTANT: This article is written in {detected_language}. The summary MUST translate the content to English "
-                                   f"and use British English spelling conventions (e.g., 'colour', 'realise', 'centre', 'organisation') in your summary. "
-                                   f"However, preserve proper nouns, currencies, and specific terms exactly as they appear. "
-                                   f"Do not convert currencies or change any factual details, just translate the text to British English.")
+            spelling_instruction = (
+                f"IMPORTANT: This article is written in {detected_language}. The summary MUST translate the content to English "
+                f"and use British English spelling conventions (e.g., 'colour', 'realise', 'centre', 'organisation') in your summary. "
+                f"However, preserve proper nouns, currencies, and specific terms exactly as they appear. "
+                f"Do not convert currencies or change any factual details, just translate the text to British English."
+            )
 
         # Select appropriate prompt based on article type
         if article_type == "news":
-            prompt = (f"Summarise this news article in {sentence_count} *short* sentences. {spelling_instruction} Be specific where applicable. Full sentences only, no lists.{instruction_text}{client_context} "
-                     f"You MUST begin with '{publication} reports that'\n\nArticle: {article_text}")
+            prompt = (
+                f"Summarise this news article in {sentence_count} *short* sentences. {spelling_instruction} Be specific where applicable. Full sentences only, no lists.{instruction_text}{client_context} "
+                f"You MUST begin with '{publication} reports that'\n\nArticle: {article_text}"
+            )
 
         elif article_type == "interview":
-            prompt = (f"Summarise this interview article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
-                    f"For your first sentence: Begin with '{publication} carries an interview with {author}' and include a brief overview of the main topic discussed. "
-                    f"For remaining {sentence_count-1} sentences, begin these sentences like  '[author last name] argues/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}")
+            prompt = (
+                f"Summarise this interview article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
+                f"For your first sentence: Begin with '{publication} carries an interview with {author}' and include a brief overview of the main topic discussed. "
+                f"For remaining {sentence_count - 1} sentences, begin these sentences like  '[author last name] argues/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}"
+            )
 
         elif article_type == "op-ed":
             # For op-eds, first ask Claude to identify the author's role
@@ -515,20 +540,20 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
                     messages=[
                         {
                             "role": "user",
-                            "content": f"From this article, extract ONLY the author's role or credentials if mentioned (like their job title, position, or expertise). Do NOT include the author's name in your response. If no role is mentioned, respond with 'NO_ROLE'. Don't include any other text in your response:\n\n{article_text}"
+                            "content": f"From this article, extract ONLY the author's role or credentials if mentioned (like their job title, position, or expertise). Do NOT include the author's name in your response. If no role is mentioned, respond with 'NO_ROLE'. Don't include any other text in your response:\n\n{article_text}",
                         }
-                    ]
+                    ],
                 )
 
                 # Use the new extraction method
                 author_role = self._extract_claude_content(author_role_message).strip()
 
                 # Construct the author introduction based on whether a role was found
-                if author_role and author_role != 'NO_ROLE':
+                if author_role and author_role != "NO_ROLE":
                     # Remove any instances of the author's name from the role
-                    author_role = author_role.replace(author, '').strip()
+                    author_role = author_role.replace(author, "").strip()
                     # Clean up any leftover commas or spaces
-                    author_role = author_role.strip(' ,')
+                    author_role = author_role.strip(" ,")
                     author_intro = f"{author}, {author_role}"
                 else:
                     author_intro = author
@@ -537,12 +562,16 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
                 print(f"Error getting author role: {e}")
                 author_intro = author
 
-            prompt = (f"Summarise this op-ed article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
-                        f"For your first sentence: Begin with '{publication} carries an op-ed by {author_intro}' and include a brief overview of their main argument. "
-                        f"For remaining {sentence_count-1} sentences, begin these sentences like  '[author last name] argues/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}")
+            prompt = (
+                f"Summarise this op-ed article in {sentence_count} VERY SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
+                f"For your first sentence: Begin with '{publication} carries an op-ed by {author_intro}' and include a brief overview of their main argument or opinion. "
+                f"For remaining {sentence_count - 1} sentences, begin these sentences like  '[author last name] argues/warns/suggests/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}"
+            )
         else:  # feature
-            prompt = (f"Summarise this feature article in {sentence_count} *concise* quite SHORT sentences that flow. {spelling_instruction} Where applicable begin sentences like 'The article (also) highlights/cites/notes/discusses/examines/suggests'. Do NOT use 'we' in the summary. Be specific where applicable and make sure to convey the broad points of the piece in the summary.{instruction_text}{client_context} "
-                     f"You MUST begin with '{publication} carries a feature'\n\nArticle: {article_text}")
+            prompt = (
+                f"Summarise this feature article in {sentence_count} *concise* quite SHORT sentences that flow. {spelling_instruction} Where applicable begin sentences like 'The article (also) highlights/cites/notes/discusses/examines/suggests'. Do NOT use 'we' in the summary. Be specific where applicable and make sure to convey the broad points of the piece in the summary.{instruction_text}{client_context} "
+                f"You MUST begin with '{publication} carries a feature'\n\nArticle: {article_text}"
+            )
 
         try:
             # Get response from Claude with system message for conciseness
@@ -550,12 +579,7 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
                 model="claude-sonnet-4-20250514",
                 max_tokens=1024,
                 system=self._get_system_message(),
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             # Extract content using the new method

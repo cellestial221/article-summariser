@@ -322,6 +322,58 @@ def handle_submit():
             st.session_state["error_message"] = f"An error occurred: {error_message}"
 
 
+def copy_to_clipboard(text):
+    """Copy text to clipboard using pyperclip"""
+    try:
+        pyperclip.copy(text)
+        return True
+    except Exception as e:
+        st.warning(f"Could not copy to clipboard: {str(e)}")
+        return False
+
+
+def remove_publication_from_summary(text):
+    """
+    Removes the publication attribution from the start of the summary
+    to create a 'clean' version.
+    """
+    if not text:
+        return ""
+
+    # Pattern for standard news summaries: "{Publication} reports that..."
+    if " reports that " in text:
+        parts = text.split(" reports that ", 1)
+        if len(parts) > 1:
+            clean_text = parts[1]
+            # Capitalise the first letter of the new sentence
+            return clean_text[0].upper() + clean_text[1:] if clean_text else ""
+
+    # Pattern for features: "{Publication} carries a feature..."
+    if " carries a feature" in text:
+        # Try to clean up common follow-ups to make a valid sentence
+        # e.g. "The Times carries a feature on..." -> "A feature on..."
+        parts = text.split(" carries a feature", 1)
+        if len(parts) > 1:
+            clean_text = parts[1].strip()
+            # Remove leading 'which' or punctuation if present to make it flow
+            if clean_text.startswith("which "):
+                clean_text = clean_text[6:]
+            return clean_text[0].upper() + clean_text[1:] if clean_text else ""
+
+    # Pattern for interviews/op-eds: "{Publication} carries an interview with..."
+    if " carries an " in text:
+        parts = text.split(" carries an ", 1)
+        if len(parts) > 1:
+            # This is harder to clean perfectly without losing context,
+            # so we return the second half which usually contains the author/subject
+            clean_text = parts[1]
+            # E.g. "interview with John who says..." -> "Interview with John who says..."
+            return clean_text[0].upper() + clean_text[1:] if clean_text else ""
+
+    # Return original text if no patterns match
+    return text
+
+
 def handle_copy_full():
     """Handle copying full summary"""
     if st.session_state.get("summary"):
