@@ -1,6 +1,7 @@
 """
 Article scraping module for extracting article content from URLs
 Uses Trafilatura as primary scraper with Newspaper4k as fallback
+Enhanced with comprehensive publication name mapping from JSON file
 """
 
 import trafilatura
@@ -9,6 +10,8 @@ from urllib.parse import urlparse
 from typing import Dict, Optional
 import logging
 import streamlit as st
+import json
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -22,89 +25,132 @@ class ArticleScraper:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
+        # Load publication mappings from JSON file
+        self.publication_mappings = self._load_publication_mappings()
+
+    def _load_publication_mappings(self) -> Dict[str, str]:
+        """Load publication mappings from JSON file"""
+        try:
+            # Try to load from the same directory as this script
+            json_path = os.path.join(os.path.dirname(__file__), 'publication_mappings.json')
+
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    mappings = json.load(f)
+                logger.info(f"Loaded {len(mappings)} publication mappings from JSON file")
+                return mappings
+            else:
+                logger.warning(f"Publication mappings file not found at {json_path}")
+                return {}
+
+        except Exception as e:
+            logger.error(f"Error loading publication mappings: {e}")
+            return {}
+
     def extract_publication_name(self, url: str) -> str:
-        """Extract publication name from URL"""
+        """Extract publication name from URL using JSON mappings with fallbacks"""
         try:
             parsed = urlparse(url)
             domain = parsed.netloc
 
-            # Remove common prefixes
-            domain = domain.replace('www.', '')
-            domain = domain.replace('edition.', '')
-            domain = domain.replace('amp.', '')
+            # Try exact match first
+            if domain in self.publication_mappings:
+                return self.publication_mappings[domain]
 
-            # Get the main part of the domain
-            parts = domain.split('.')
+            # Try without www prefix
+            domain_no_www = domain.replace('www.', '')
+            if domain_no_www in self.publication_mappings:
+                return self.publication_mappings[domain_no_www]
+
+            # Try with www prefix if it doesn't have it
+            if not domain.startswith('www.'):
+                domain_with_www = f"www.{domain}"
+                if domain_with_www in self.publication_mappings:
+                    return self.publication_mappings[domain_with_www]
+
+            # Remove other common prefixes and try again
+            clean_domain = domain
+            prefixes_to_remove = ['www.', 'edition.', 'amp.', 'm.', 'mobile.', 'news.']
+
+            for prefix in prefixes_to_remove:
+                if clean_domain.startswith(prefix):
+                    clean_domain = clean_domain[len(prefix):]
+                    if clean_domain in self.publication_mappings:
+                        return self.publication_mappings[clean_domain]
+
+            # Fallback to legacy hardcoded mappings for domains not in JSON
+            legacy_mappings = {
+                'nytimes': 'The New York Times',
+                'wsj': 'The Wall Street Journal',
+                'ft': 'Financial Times',
+                'bbc': 'BBC News',
+                'cnn': 'CNN',
+                'reuters': 'Reuters',
+                'bloomberg': 'Bloomberg',
+                'theguardian': 'The Guardian',
+                'washingtonpost': 'The Washington Post',
+                'economist': 'The Economist',
+                'forbes': 'Forbes',
+                'businessinsider': 'Business Insider',
+                'techcrunch': 'TechCrunch',
+                'wired': 'Wired',
+                'vox': 'Vox',
+                'politico': 'Politico',
+                'axios': 'Axios',
+                'theatlantic': 'The Atlantic',
+                'newyorker': 'The New Yorker',
+                'buzzfeed': 'BuzzFeed',
+                'huffpost': 'HuffPost',
+                'slate': 'Slate',
+                'salon': 'Salon',
+                'thedailybeast': 'The Daily Beast',
+                'thehill': 'The Hill',
+                'motherjones': 'Mother Jones',
+                'theintercept': 'The Intercept',
+                'propublica': 'ProPublica',
+                'apnews': 'Associated Press',
+                'npr': 'NPR',
+                'cbsnews': 'CBS News',
+                'nbcnews': 'NBC News',
+                'abcnews': 'ABC News',
+                'foxnews': 'Fox News',
+                'usatoday': 'USA Today',
+                'latimes': 'Los Angeles Times',
+                'chicagotribune': 'Chicago Tribune',
+                'bostonglobe': 'The Boston Globe',
+                'seattletimes': 'The Seattle Times',
+                'denverpost': 'The Denver Post',
+                'miamiherald': 'Miami Herald',
+                'startribune': 'Star Tribune',
+                'dallasnews': 'The Dallas Morning News',
+                'sfchronicle': 'San Francisco Chronicle',
+                'newsweek': 'Newsweek',
+                'time': 'TIME',
+                'fortune': 'Fortune',
+                'cnbc': 'CNBC',
+                'marketwatch': 'MarketWatch',
+                'barrons': 'Barron\'s',
+                'investopedia': 'Investopedia',
+                'morningstar': 'Morningstar',
+                'seekingalpha': 'Seeking Alpha',
+                'benzinga': 'Benzinga',
+                'thestreet': 'TheStreet'
+            }
+
+            # Extract the main part of the domain for legacy lookup
+            parts = clean_domain.split('.')
             if len(parts) >= 2:
-                # Return the main domain name, capitalizing it
                 pub_name = parts[0]
-                # Handle special cases
-                special_cases = {
-                    'nytimes': 'The New York Times',
-                    'wsj': 'The Wall Street Journal',
-                    'ft': 'Financial Times',
-                    'bbc': 'BBC News',
-                    'cnn': 'CNN',
-                    'reuters': 'Reuters',
-                    'bloomberg': 'Bloomberg',
-                    'theguardian': 'The Guardian',
-                    'washingtonpost': 'The Washington Post',
-                    'economist': 'The Economist',
-                    'forbes': 'Forbes',
-                    'businessinsider': 'Business Insider',
-                    'techcrunch': 'TechCrunch',
-                    'wired': 'Wired',
-                    'vox': 'Vox',
-                    'politico': 'Politico',
-                    'axios': 'Axios',
-                    'theatlantic': 'The Atlantic',
-                    'newyorker': 'The New Yorker',
-                    'buzzfeed': 'BuzzFeed',
-                    'huffpost': 'HuffPost',
-                    'slate': 'Slate',
-                    'salon': 'Salon',
-                    'thedailybeast': 'The Daily Beast',
-                    'thehill': 'The Hill',
-                    'motherjones': 'Mother Jones',
-                    'theintercept': 'The Intercept',
-                    'propublica': 'ProPublica',
-                    'apnews': 'Associated Press',
-                    'npr': 'NPR',
-                    'cbsnews': 'CBS News',
-                    'nbcnews': 'NBC News',
-                    'abcnews': 'ABC News',
-                    'foxnews': 'Fox News',
-                    'usatoday': 'USA Today',
-                    'latimes': 'Los Angeles Times',
-                    'chicagotribune': 'Chicago Tribune',
-                    'bostonglobe': 'The Boston Globe',
-                    'seattletimes': 'The Seattle Times',
-                    'denverpost': 'The Denver Post',
-                    'miamiherald': 'Miami Herald',
-                    'startribune': 'Star Tribune',
-                    'dallasnews': 'The Dallas Morning News',
-                    'sfchronicle': 'San Francisco Chronicle',
-                    'newsweek': 'Newsweek',
-                    'time': 'TIME',
-                    'fortune': 'Fortune',
-                    'cnbc': 'CNBC',
-                    'marketwatch': 'MarketWatch',
-                    'barrons': 'Barron\'s',
-                    'investopedia': 'Investopedia',
-                    'morningstar': 'Morningstar',
-                    'seekingalpha': 'Seeking Alpha',
-                    'benzinga': 'Benzinga',
-                    'thestreet': 'TheStreet'
-                }
-
-                if pub_name.lower() in special_cases:
-                    return special_cases[pub_name.lower()]
+                if pub_name.lower() in legacy_mappings:
+                    return legacy_mappings[pub_name.lower()]
                 else:
-                    # Capitalize first letter of each word
+                    # Final fallback: capitalize domain name
                     return pub_name.replace('-', ' ').replace('_', ' ').title()
 
-            return domain.title()
-        except:
+            return clean_domain.title()
+
+        except Exception as e:
+            logger.error(f"Error extracting publication name from {url}: {e}")
             return ""
 
     def scrape_with_trafilatura(self, url: str) -> Optional[Dict[str, str]]:
