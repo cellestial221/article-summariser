@@ -10,7 +10,8 @@ from summarizer import ArticleSummarizer
 
 
 def inject_custom_css():
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&display=swap');
     h1, h2, h3, h4, h5, h6,
@@ -77,8 +78,23 @@ def inject_custom_css():
         background-color: #F6FAFA !important;
         border-radius: 4px !important;
     }
+    button p {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0.3em !important;
+        line-height: 1.2 !important;
+        margin: 0 !important;
+    }
+    button img {
+        vertical-align: middle !important;
+        width: 1em !important;
+        height: 1em !important;
+    }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def get_unique_key():
@@ -95,7 +111,6 @@ def reset_form():
     st.session_state["error_message"] = None
     st.session_state["detected_type"] = None
     st.session_state["detection_explanation"] = None
-    st.session_state["client_mention_count"] = None
     st.session_state["client_validation_done"] = False
     st.session_state["scraped_content"] = None
     st.session_state["detected_language"] = None
@@ -212,7 +227,9 @@ def handle_url_scraping():
 
             st.success("✅ Article successfully extracted.")
             if result.get("paywall_warning"):
-                st.caption("⚠️ This site often has paywalled content — if the text looks incomplete, paste it manually.")
+                st.caption(
+                    "⚠️ This site often has paywalled content — if the text looks incomplete, paste it manually."
+                )
 
         else:
             st.session_state["error_message"] = result.get(
@@ -297,33 +314,41 @@ def handle_submit():
     specific_instructions = st.session_state.get(
         f"specific_instructions_{unique_key}", None
     )
-    use_article_pointers = (
-        article_type == "news"
-        and st.session_state.get(f"use_article_pointers_{unique_key}", False)
+    use_article_pointers = article_type == "news" and st.session_state.get(
+        f"use_article_pointers_{unique_key}", False
     )
 
     # Handle client mention feature
-    client_name = None
-    client_mention_count = None
+    client_mentions = None
     use_client_tracking = st.session_state.get(
         f"use_client_tracking_{unique_key}", False
     )
 
     if use_client_tracking:
-        client_name = st.session_state.get(f"client_name_{unique_key}", "").strip()
-        if client_name:
-            # Validate client mentions
-            client_mention_count = validate_client_mention(article_text, client_name)
-            if client_mention_count == 0:
+        raw = st.session_state.get(f"client_name_{unique_key}", "").strip()
+        if raw:
+            names = [n.strip() for n in raw.split(",") if n.strip()]
+            found = {}
+            missing = []
+            for name in names:
+                count = count_client_mentions(article_text, name)
+                if count:
+                    found[name] = count
+                else:
+                    missing.append(name)
+
+            if not found:
+                all_names = "', '".join(names)
                 st.session_state["error_message"] = (
-                    f"'{client_name}' was not found in the article text. Please check the client name and try again."
+                    f"None of '{all_names}' were found in the article text. "
+                    "Please check the names and try again."
                 )
                 return
-            # Store for display - FIX: Store with unique key to prevent loss
-            st.session_state[f"client_mention_count_{unique_key}"] = (
-                client_mention_count
-            )
+
+            st.session_state[f"client_found_mentions_{unique_key}"] = found
+            st.session_state[f"client_missing_names_{unique_key}"] = missing
             st.session_state[f"client_validation_done_{unique_key}"] = True
+            client_mentions = found
 
     # Validate inputs
     if not publication or not article_text:
@@ -350,8 +375,7 @@ def handle_submit():
             author=author,
             specific_instructions=specific_instructions,
             sentence_count=st.session_state[f"sentence_count_{unique_key}"],
-            client_name=client_name,
-            client_mention_count=client_mention_count,
+            client_mentions=client_mentions,
             use_article_pointers=use_article_pointers,
         )
 
@@ -401,7 +425,7 @@ def remove_publication_from_summary(text):
     for phrase in [" reports that ", " carries a ", " carries an "]:
         if phrase in text:
             idx = text.index(phrase)
-            return text[idx + 1:]  # skip leading space, keep phrase as-is
+            return text[idx + 1 :]  # skip leading space, keep phrase as-is
     return text
 
 
@@ -437,7 +461,10 @@ def check_password() -> bool:
             st.session_state["authenticated"] = False
             st.session_state["login_failed"] = True
 
-    st.markdown("<h1 style='text-align:center'>📰 Article Summariser</h1>", unsafe_allow_html=True)
+    st.markdown(
+        "<h1 style='text-align:center'>📰 Article Summariser</h1>",
+        unsafe_allow_html=True,
+    )
 
     _, col, _ = st.columns([1, 1, 1])
     with col:
@@ -462,7 +489,6 @@ def setup_api_keys():
 def initialize_summarizer(api_key: str):
     """Initialize the summarizer with the provided API key"""
     st.session_state["summarizer"] = ArticleSummarizer(api_key)
-
 
 
 def main():
@@ -558,7 +584,11 @@ def main():
             # Show language detection only for non-English articles
             if article_text_value:
                 lang_info = st.session_state.get("detected_language")
-                if lang_info and not lang_info.get("is_english", True) and lang_info.get("language") not in (None, "Unknown"):
+                if (
+                    lang_info
+                    and not lang_info.get("is_english", True)
+                    and lang_info.get("language") not in (None, "Unknown")
+                ):
                     st.caption(f"🌍 {lang_info['language']} detected — will translate")
 
             # Step 4: Article Type Determination
@@ -566,7 +596,9 @@ def main():
 
             # Apply pending auto-detected type before the widget renders
             if st.session_state.get("pending_article_type"):
-                st.session_state[f"article_type_{unique_key}"] = st.session_state.pop("pending_article_type")
+                st.session_state[f"article_type_{unique_key}"] = st.session_state.pop(
+                    "pending_article_type"
+                )
 
             article_type = st.selectbox(
                 "Select Article Type",
@@ -574,13 +606,18 @@ def main():
                 key=f"article_type_{unique_key}",
             )
 
-            if st.button("🤖 Auto-detect type", type="secondary", use_container_width=True):
+            if st.button(
+                "🤖 Auto-detect type", type="secondary", use_container_width=True
+            ):
                 handle_type_detection()
 
             if st.session_state.get("detected_type"):
                 explanation = st.session_state.get("detection_explanation", "")
                 label = st.session_state["detected_type"].title()
-                st.caption(f"Auto-detected: {label}" + (f" — {explanation}" if explanation else ""))
+                st.caption(
+                    f"Auto-detected: {label}"
+                    + (f" — {explanation}" if explanation else "")
+                )
 
             # Show author field for op-eds and interviews
             if article_type in ["op-ed", "interview"]:
@@ -632,26 +669,29 @@ def main():
                 key=f"use_client_tracking_{unique_key}",
             )
             if use_client_tracking:
-                client_name = st.text_input(
-                    "Client Name",
-                    placeholder="Enter the client name to track...",
-                    help="The summary will accurately reflect how this client is mentioned in context",
+                st.text_input(
+                    "Client Name(s)",
+                    placeholder="e.g. Alphabet, Google",
+                    help="Enter one or more client names separated by commas. The summary will reflect whichever are found in the article.",
                     key=f"client_name_{unique_key}",
                 )
 
-                # FIX: Show validation result with unique key
-                if st.session_state.get(
-                    f"client_validation_done_{unique_key}"
-                ) and st.session_state.get(f"client_mention_count_{unique_key}"):
-                    count = st.session_state[f"client_mention_count_{unique_key}"]
-                    if count == 1:
-                        st.info(f"✓ '{client_name}' is mentioned once in the article")
-                    else:
-                        st.info(
-                            f"✓ '{client_name}' is mentioned {count} times in the article"
-                        )
+                if st.session_state.get(f"client_validation_done_{unique_key}"):
+                    found = st.session_state.get(
+                        f"client_found_mentions_{unique_key}", {}
+                    )
+                    missing = st.session_state.get(
+                        f"client_missing_names_{unique_key}", []
+                    )
+                    for name, count in found.items():
+                        label = "once" if count == 1 else f"{count} times"
+                        st.info(f"✓ '{name}' mentioned {label}")
+                    for name in missing:
+                        st.caption(f"'{name}' not found — will be excluded")
 
-            summarise_clicked = st.button("Summarise", type="primary", use_container_width=True)
+            summarise_clicked = st.button(
+                "Summarise", type="primary", use_container_width=True
+            )
 
         with col2:
             if summarise_clicked:

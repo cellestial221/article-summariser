@@ -82,40 +82,60 @@ class ArticleSummarizer:
 
         return summary.strip()
 
-    def _build_client_mention_context(
-        self, client_name: str, mention_count: int
-    ) -> str:
-        """Build contextual instructions for client mentions in the summary"""
-        if not client_name or mention_count == 0:
+    def _build_client_mention_context(self, client_mentions: dict) -> str:
+        """Build contextual instructions for client mentions in the summary."""
+        if not client_mentions:
             return ""
 
-        if mention_count == 1:
-            context = (
-                f"\n\nIMPORTANT: The client '{client_name}' is mentioned once in this article. "
-                f"You must accurately reflect this single mention in the summary with appropriate context. "
-                f"If the mention is brief or peripheral, do not overemphasise it (especially not in the first sentence). "
-                f"If '{client_name}' is central to the story, position it appropriately. "
-                f"Be accurate about HOW '{client_name}' is described or referenced in the article."
-            )
-        elif mention_count <= 3:
-            context = (
-                f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article. "
-                f"You must accurately reflect these mentions in the summary with appropriate weight and context. "
-                f"If the mentions are brief or peripheral, do not overemphasise them. "
-                f"If '{client_name}' is central to the story, ensure this is clear in the summary. "
-                f"Be accurate about HOW '{client_name}' is described or referenced, maintaining the article's perspective."
-            )
-        else:
-            context = (
-                f"\n\nIMPORTANT: The client '{client_name}' is mentioned {mention_count} times in this article, "
-                f"suggesting they are likely a significant element of the story. "
-                f"You must accurately reflect '{client_name}'s prominence in the summary while maintaining overall balance. "
-                f"If '{client_name}' is the main focus, this should be clear (potentially in the first sentence). "
-                f"If they are one of several key elements, position them appropriately. "
-                f"Be precise about HOW '{client_name}' is described, what role they play, and maintain the article's tone and perspective."
-            )
+        if len(client_mentions) == 1:
+            name, count = next(iter(client_mentions.items()))
+            if count == 1:
+                return (
+                    f"\n\nIMPORTANT: The client '{name}' is mentioned once in this article. "
+                    f"You must accurately reflect this single mention in the summary with appropriate context. "
+                    f"If the mention is brief or peripheral, do not overemphasise it (especially not in the first sentence). "
+                    f"If '{name}' is central to the story, position it appropriately. "
+                    f"Be accurate about HOW '{name}' is described or referenced in the article."
+                )
+            elif count <= 3:
+                return (
+                    f"\n\nIMPORTANT: The client '{name}' is mentioned {count} times in this article. "
+                    f"You must accurately reflect these mentions in the summary with appropriate weight and context. "
+                    f"If the mentions are brief or peripheral, do not overemphasise them. "
+                    f"If '{name}' is central to the story, ensure this is clear in the summary. "
+                    f"Be accurate about HOW '{name}' is described or referenced, maintaining the article's perspective."
+                )
+            else:
+                return (
+                    f"\n\nIMPORTANT: The client '{name}' is mentioned {count} times in this article, "
+                    f"suggesting they are likely a significant element of the story. "
+                    f"You must accurately reflect '{name}'s prominence in the summary while maintaining overall balance. "
+                    f"If '{name}' is the main focus, this should be clear (potentially in the first sentence). "
+                    f"If they are one of several key elements, position them appropriately. "
+                    f"Be precise about HOW '{name}' is described, what role they play, and maintain the article's tone and perspective."
+                )
 
-        return context
+        # Multiple clients
+        lines = []
+        for name, count in client_mentions.items():
+            if count == 1:
+                lines.append(
+                    f"- '{name}': mentioned once — reflect accurately; do not overemphasise if peripheral."
+                )
+            elif count <= 3:
+                lines.append(
+                    f"- '{name}': mentioned {count} times — reflect with appropriate weight and context."
+                )
+            else:
+                lines.append(
+                    f"- '{name}': mentioned {count} times — likely significant; reflect prominence accurately."
+                )
+        block = "\n".join(lines)
+        return (
+            f"\n\nIMPORTANT: This article mentions multiple tracked clients:\n{block}\n"
+            "Be precise about HOW each client is described, their role in the story, "
+            "and maintain the article's tone and perspective for each."
+        )
 
     def detect_language(self, article_text: str) -> dict:
         """
@@ -448,8 +468,7 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
         author: str = None,
         specific_instructions: str = None,
         sentence_count: int = 3,
-        client_name: str = None,
-        client_mention_count: int = None,
+        client_mentions: dict = None,
         use_article_pointers: bool = False,
     ) -> str:
         """
@@ -462,8 +481,7 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
             author: Author name (required for op-eds) or interviewee name (for interviews)
             specific_instructions: Optional specific instructions for the summary
             sentence_count: Number of sentences in the summary (2-6)
-            client_name: Optional client name to track in the summary
-            client_mention_count: Number of times the client is mentioned
+            client_mentions: Dict of {name: count} for each client found in the article
         """
         # Validate inputs
         if not article_text or not publication:
@@ -485,10 +503,8 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
 
         # Build client mention context if provided
         client_context = ""
-        if client_name and client_mention_count:
-            client_context = self._build_client_mention_context(
-                client_name, client_mention_count
-            )
+        if client_mentions:
+            client_context = self._build_client_mention_context(client_mentions)
 
         # Build language and spelling instructions
         if is_english:
