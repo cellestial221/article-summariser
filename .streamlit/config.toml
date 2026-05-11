@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#224347"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F5F5"
+textColor = "#1C1C1C"
+headingFont = "'Hanken Grotesk':https://fonts.googleapis.com/css2?family=Hanken+Grotesk&display=swap"

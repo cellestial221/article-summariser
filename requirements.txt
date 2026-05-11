@@ -6,3 +6,4 @@ trafilatura
 newspaper4k
 lxml
 fast-langdetect
+bcrypt

@@ -18,18 +18,7 @@ class ArticleSummarizer:
         if not api_key:
             raise ValueError("API key is required")
 
-        try:
-            # Initialize the client with just the API key
-            self.anthropic = Anthropic(api_key=api_key)
-
-            # Try to make a minimal API call to validate the key
-            self.anthropic.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=10,
-                messages=[{"role": "user", "content": "Test"}],
-            )
-        except Exception as e:
-            raise ValueError(f"Invalid API key: {str(e)}")
+        self.anthropic = Anthropic(api_key=api_key)
 
     def _extract_claude_content(self, response):
         """Extract text content from Claude API response structure"""
@@ -139,9 +128,9 @@ class ArticleSummarizer:
         # Try fast-langdetect first if available
         if FAST_LANGDETECT_AVAILABLE:
             try:
-                # Use fast-langdetect for efficient offline detection
-                # Clean the text for better detection (remove newlines)
-                clean_text = article_text[:2000].replace("\n", " ")
+                # Use the first ~5 sentences for detection — fast-langdetect warns on long text
+                sentences = article_text.replace("\n", " ").split(". ")
+                clean_text = ". ".join(sentences[:5])
                 result = fast_detect(clean_text, low_memory=True)
 
                 # Map language codes to full names
@@ -262,7 +251,7 @@ Article text:
         try:
             # Use Claude Haiku for speed
             message = self.anthropic.messages.create(
-                model="claude-3-haiku-20240307",
+                model="claude-haiku-4-5-20251001",
                 max_tokens=20,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -373,7 +362,7 @@ Article text:
         try:
             # Use Claude Haiku for speed
             message = self.anthropic.messages.create(
-                model="claude-3-haiku-20240307",
+                model="claude-haiku-4-5-20251001",
                 max_tokens=100,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -444,7 +433,7 @@ Your writing style:
 - Include necessary articles (the, a, an) and conjunctions (that, which, who) for clarity
 - Combine related ideas efficiently while maintaining natural speech patterns
 - Use precise, specific language over vague terms
-- Aim for 15 words per sentence (flexibility for natural flow)
+        - Aim for around 20 words per sentence; prefer shorter where meaning allows
 - Every word must contribute to clarity or accuracy
 
 IMPORTANT: Return the summary as a single continuous paragraph with no line breaks between sentences. Sentences should flow together with just spaces between them.
@@ -461,6 +450,7 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
         sentence_count: int = 3,
         client_name: str = None,
         client_mention_count: int = None,
+        use_article_pointers: bool = False,
     ) -> str:
         """
         Get article summary using Claude API
@@ -518,8 +508,14 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
 
         # Select appropriate prompt based on article type
         if article_type == "news":
+            pointer_instruction = (
+                " For each sentence after the first, you MUST begin with one of:"
+                " 'The article highlights', 'The article notes', 'The article outlines',"
+                " or 'The article cites'."
+                if use_article_pointers else ""
+            )
             prompt = (
-                f"Summarise this news article in {sentence_count} *short* sentences. {spelling_instruction} Be specific where applicable. Full sentences only, no lists.{instruction_text}{client_context} "
+                f"Summarise this news article in {sentence_count} *short* sentences. {spelling_instruction} Be specific where applicable. Full sentences only, no lists.{pointer_instruction}{instruction_text}{client_context} "
                 f"You MUST begin with '{publication} reports that'\n\nArticle: {article_text}"
             )
 
@@ -534,7 +530,7 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
             # For op-eds, first ask Claude to identify the author's role
             try:
                 author_role_message = self.anthropic.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model="claude-opus-4-6",
                     max_tokens=1024,
                     system="You are a precise information extractor. Respond only with the requested information, nothing more.",
                     messages=[
@@ -576,7 +572,7 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
         try:
             # Get response from Claude with system message for conciseness
             message = self.anthropic.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-opus-4-6",
                 max_tokens=1024,
                 system=self._get_system_message(),
                 messages=[{"role": "user", "content": prompt}],
@@ -592,3 +588,4 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
 
         except Exception as e:
             raise Exception(f"Error getting summary from Claude: {str(e)}")
+

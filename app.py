@@ -1,11 +1,84 @@
 import os
 import re
 
+import bcrypt
 import pyperclip
 import streamlit as st
 
 from article_scraper import ArticleScraper
 from summarizer import ArticleSummarizer
+
+
+def inject_custom_css():
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&display=swap');
+    h1, h2, h3, h4, h5, h6,
+    [data-testid="stHeading"] {
+        font-family: 'Hanken Grotesk', sans-serif !important;
+    }
+    button[kind="primary"],
+    button[data-testid="baseButton-primary"] {
+        background-color: #224347 !important;
+        border-color: #224347 !important;
+        color: white !important;
+    }
+    button[kind="primary"]:hover,
+    button[data-testid="baseButton-primary"]:hover {
+        background-color: #1a3437 !important;
+        border-color: #1a3437 !important;
+        color: white !important;
+    }
+    button[kind="secondary"],
+    button[data-testid="baseButton-secondary"] {
+        border: 1px solid #224347 !important;
+        color: #224347 !important;
+        background-color: transparent !important;
+    }
+    button[kind="secondary"]:hover,
+    button[data-testid="baseButton-secondary"]:hover {
+        background-color: #eef4f4 !important;
+        border-color: #224347 !important;
+        color: #224347 !important;
+    }
+    [data-testid="stFormSubmitButton"] > button {
+        background-color: #224347 !important;
+        border-color: #224347 !important;
+        color: white !important;
+    }
+    [data-testid="stFormSubmitButton"] > button:hover {
+        background-color: #1a3437 !important;
+        border-color: #1a3437 !important;
+    }
+    input[type="radio"],
+    [data-testid="stRadio"] input[type="radio"] {
+        accent-color: #224347 !important;
+    }
+    [data-testid="stRadio"] label {
+        border-color: #224347 !important;
+    }
+    [data-testid="stRadio"] label[data-selected="true"] {
+        background-color: #224347 !important;
+        color: white !important;
+    }
+    input[type="checkbox"] {
+        accent-color: #224347 !important;
+    }
+    [data-testid="stTextInput"] > div:focus-within,
+    [data-testid="stTextArea"] > div:focus-within,
+    [data-testid="stNumberInput"] > div:focus-within,
+    [data-testid="stSelectbox"] > div:focus-within {
+        border-color: #224347 !important;
+        box-shadow: 0 0 0 1px #224347 !important;
+    }
+    [data-testid="stText"] {
+        border-left: 3px solid #00A19B !important;
+        padding: 10px 16px !important;
+        background-color: #F6FAFA !important;
+        border-radius: 4px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def get_unique_key():
@@ -26,8 +99,8 @@ def reset_form():
     st.session_state["client_validation_done"] = False
     st.session_state["scraped_content"] = None
     st.session_state["detected_language"] = None
-    # Clear clipboard feedback
     st.session_state["clipboard_feedback"] = None
+    st.session_state["pending_article_type"] = None
 
 
 def safe_display_text(text):
@@ -137,14 +210,9 @@ def handle_url_scraping():
             # Detect language of scraped content
             detect_article_language(result["text"])
 
-            # Success message
-            method = result.get("method", "unknown")
-            success_msg = f"✅ Article successfully extracted using {method}!"
-
+            st.success("✅ Article successfully extracted.")
             if result.get("paywall_warning"):
-                success_msg += "\n⚠️ Note: This site often has paywalled content. If the extracted text seems incomplete, you may need to paste it manually."
-
-            st.success(success_msg)
+                st.caption("⚠️ This site often has paywalled content — if the text looks incomplete, paste it manually.")
 
         else:
             st.session_state["error_message"] = result.get(
@@ -187,9 +255,8 @@ def handle_type_detection():
 
         st.session_state["detected_type"] = result["type"]
         st.session_state["detection_explanation"] = result["explanation"]
-        st.success(
-            f"Article type detected: **{result['type'].title()}** - {result['explanation']}"
-        )
+        st.session_state["pending_article_type"] = result["type"]
+        st.rerun()  # rerun so pending is applied before the selectbox renders
     except Exception as e:
         error_message = str(e)
 
@@ -224,21 +291,15 @@ def handle_submit():
     publication = st.session_state[f"publication_{unique_key}"]
     article_text = st.session_state[f"article_text_{unique_key}"]
 
-    # Determine article type - either from detection or manual selection
-    use_ai_analysis = st.session_state.get(f"use_ai_analysis_{unique_key}", False)
-    if use_ai_analysis:
-        article_type = st.session_state.get("detected_type")
-        if not article_type:
-            st.session_state["error_message"] = (
-                "Please analyze the article type first using the 'Analyze Article Type' button"
-            )
-            return
-    else:
-        article_type = st.session_state[f"article_type_{unique_key}"]
+    article_type = st.session_state[f"article_type_{unique_key}"]
 
     author = st.session_state.get(f"author_{unique_key}", None)
     specific_instructions = st.session_state.get(
         f"specific_instructions_{unique_key}", None
+    )
+    use_article_pointers = (
+        article_type == "news"
+        and st.session_state.get(f"use_article_pointers_{unique_key}", False)
     )
 
     # Handle client mention feature
@@ -291,6 +352,7 @@ def handle_submit():
             sentence_count=st.session_state[f"sentence_count_{unique_key}"],
             client_name=client_name,
             client_mention_count=client_mention_count,
+            use_article_pointers=use_article_pointers,
         )
 
         # Store summary in session state, ensuring it's properly cleaned
@@ -333,44 +395,13 @@ def copy_to_clipboard(text):
 
 
 def remove_publication_from_summary(text):
-    """
-    Removes the publication attribution from the start of the summary
-    to create a 'clean' version.
-    """
+    """Strip leading publication name, keeping the connecting phrase intact."""
     if not text:
         return ""
-
-    # Pattern for standard news summaries: "{Publication} reports that..."
-    if " reports that " in text:
-        parts = text.split(" reports that ", 1)
-        if len(parts) > 1:
-            clean_text = parts[1]
-            # Capitalise the first letter of the new sentence
-            return clean_text[0].upper() + clean_text[1:] if clean_text else ""
-
-    # Pattern for features: "{Publication} carries a feature..."
-    if " carries a feature" in text:
-        # Try to clean up common follow-ups to make a valid sentence
-        # e.g. "The Times carries a feature on..." -> "A feature on..."
-        parts = text.split(" carries a feature", 1)
-        if len(parts) > 1:
-            clean_text = parts[1].strip()
-            # Remove leading 'which' or punctuation if present to make it flow
-            if clean_text.startswith("which "):
-                clean_text = clean_text[6:]
-            return clean_text[0].upper() + clean_text[1:] if clean_text else ""
-
-    # Pattern for interviews/op-eds: "{Publication} carries an interview with..."
-    if " carries an " in text:
-        parts = text.split(" carries an ", 1)
-        if len(parts) > 1:
-            # This is harder to clean perfectly without losing context,
-            # so we return the second half which usually contains the author/subject
-            clean_text = parts[1]
-            # E.g. "interview with John who says..." -> "Interview with John who says..."
-            return clean_text[0].upper() + clean_text[1:] if clean_text else ""
-
-    # Return original text if no patterns match
+    for phrase in [" reports that ", " carries a ", " carries an "]:
+        if phrase in text:
+            idx = text.index(phrase)
+            return text[idx + 1:]  # skip leading space, keep phrase as-is
     return text
 
 
@@ -389,50 +420,54 @@ def handle_copy_clean():
             st.session_state["clipboard_feedback"] = "clean"
 
 
+def check_password() -> bool:
+    """Show login form and return True if the user is authenticated."""
+    if st.session_state.get("authenticated", False):
+        return True
+
+    def _verify():
+        username = st.session_state.get("login_username", "").lower().strip()
+        password = st.session_state.get("login_password", "")
+        stored = st.secrets.get("passwords", {}).get(username)
+        if stored and bcrypt.checkpw(password.encode(), stored.encode()):
+            st.session_state["authenticated"] = True
+            st.session_state.pop("login_username", None)
+            st.session_state.pop("login_password", None)
+        else:
+            st.session_state["authenticated"] = False
+            st.session_state["login_failed"] = True
+
+    st.markdown("<h1 style='text-align:center'>📰 Article Summariser</h1>", unsafe_allow_html=True)
+
+    _, col, _ = st.columns([1, 1, 1])
+    with col:
+        with st.form("login_form"):
+            st.text_input("Username", key="login_username")
+            st.text_input("Password", type="password", key="login_password")
+            st.form_submit_button("Log in", use_container_width=True, on_click=_verify)
+        if st.session_state.get("login_failed"):
+            st.error("Invalid username or password.")
+
+    return False
+
+
+def setup_api_keys():
+    """Load the Anthropic API key from secrets and initialise the summarizer."""
+    api_key = st.secrets["anthropic"]["api_key"]
+    os.environ["ANTHROPIC_API_KEY"] = api_key
+    if "summarizer" not in st.session_state:
+        initialize_summarizer(api_key)
+
+
 def initialize_summarizer(api_key: str):
     """Initialize the summarizer with the provided API key"""
-    try:
-        with st.spinner("Validating API key..."):
-            summarizer = ArticleSummarizer(api_key)
-            st.session_state["summarizer"] = summarizer
-            st.session_state["api_key_valid"] = True
-        st.success("API key validated successfully!")
-    except Exception as e:
-        error_message = str(e)
+    st.session_state["summarizer"] = ArticleSummarizer(api_key)
 
-        # Parse different types of errors
-        if "401" in error_message or "invalid_api_key" in error_message.lower():
-            st.error("❌ Invalid API key. Please check your API key and try again.")
-            st.info("💡 Get your API key from https://console.anthropic.com/")
-        elif "529" in error_message or "overloaded" in error_message.lower():
-            st.warning(
-                "⚠️ Anthropic's servers are currently overloaded. Please try again in a few moments."
-            )
-            st.info(
-                "💡 This is a temporary issue on Anthropic's end. Your API key may be valid - just wait a minute and try again."
-            )
-        elif "rate_limit" in error_message.lower() or "429" in error_message:
-            st.warning(
-                "⏱️ Rate limit exceeded. Please wait a moment before trying again."
-            )
-        elif (
-            "network" in error_message.lower() or "connection" in error_message.lower()
-        ):
-            st.error(
-                "🌐 Network connection error. Please check your internet connection and try again."
-            )
-        else:
-            st.error(f"Error validating API key: {error_message}")
-            st.info(
-                "💡 If this persists, try generating a new API key at https://console.anthropic.com/"
-            )
-
-        st.session_state["api_key_valid"] = False
 
 
 def main():
-    # Page configuration
     st.set_page_config(page_title="Article Summariser", page_icon="📰", layout="wide")
+    inject_custom_css()
 
     # Initialize session state variables
     if "form_reset_counter" not in st.session_state:
@@ -441,8 +476,10 @@ def main():
         st.session_state["summary"] = None
     if "error_message" not in st.session_state:
         st.session_state["error_message"] = None
-    if "api_key_valid" not in st.session_state:
-        st.session_state["api_key_valid"] = False
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+    if "login_failed" not in st.session_state:
+        st.session_state["login_failed"] = False
     if "detected_type" not in st.session_state:
         st.session_state["detected_type"] = None
     if "detection_explanation" not in st.session_state:
@@ -453,40 +490,16 @@ def main():
         st.session_state["detected_language"] = None
     if "clipboard_feedback" not in st.session_state:
         st.session_state["clipboard_feedback"] = None
+    if not check_password():
+        st.stop()
 
-    # Title and description
+    # Authenticated — load API keys and initialise summarizer
+    setup_api_keys()
+
     st.title("📰 Article Summariser")
 
-    # Check if language detection is available and show info
-    try:
-        import fast_langdetect
-
-        langdetect_status = "✅ Fast language detection enabled (fast-langdetect)"
-    except ImportError:
-        langdetect_status = "⚠️ Fast language detection not installed - install 'fast-langdetect' for automatic language detection"
-
-    st.markdown(f"""
-        This app summarises articles using Claude AI. Simply input your API key and provide the article either by URL or text.
-        The summary will maintain British English spelling and automatically translate non-English articles.
-
-        *{langdetect_status}*
-    """)
-
-    # API Key input section
-    if not st.session_state.get("api_key_valid", False):
-        st.write("### First, enter your Anthropic API key")
-        api_key = st.text_input(
-            "API Key",
-            type="password",
-            help="Enter your Anthropic API key. Get one at https://console.anthropic.com/",
-            placeholder="sk-ant-xxxx...",
-        )
-        if st.button("Submit API Key"):
-            initialize_summarizer(api_key)
-        st.divider()
-
-    # Only show the main interface if API key is valid
-    if st.session_state.get("api_key_valid", False):
+    # Only show the main interface if logged in
+    if st.session_state.get("authenticated", False):
         # Create two columns
         col1, col2 = st.columns([1, 1])
 
@@ -495,7 +508,6 @@ def main():
             unique_key = get_unique_key()
 
             # Step 1: Choose input method
-            st.subheader("📝 Article Input")
             input_method = st.radio(
                 "How would you like to provide the article?",
                 ["Enter URL", "Paste Text"],
@@ -508,7 +520,6 @@ def main():
                 article_url = st.text_input(
                     "Article URL",
                     placeholder="https://www.example.com/article",
-                    help="Enter the full URL of the article you want to summarize",
                     key=f"article_url_{unique_key}",
                 )
 
@@ -526,162 +537,69 @@ def main():
                         on_click=reset_form,
                     )
 
-                # Show info about scraping
-                with st.expander("ℹ️ About URL scraping"):
-                    st.markdown("""
-                    - The scraper works with most news websites
-                    - Sites with paywalls may not work - you'll need to paste the text manually
-                    - The publication name is auto-detected from the URL
-                    - If scraping fails, you can always switch to manual text input
-                    """)
-
             # Step 2: Publication Name (always visible, may be pre-filled from scraping)
             st.text_input(
                 "Publication Name",
                 placeholder="e.g., The Guardian",
                 key=f"publication_{unique_key}",
-                help="This may be auto-filled if you used URL scraping",
             )
 
             # Step 3: Article Text (always visible, may be pre-filled from scraping)
             article_text_value = st.text_area(
                 "Article Text",
                 height=180,
-                placeholder="Paste your article text here or use the URL scraper above...",
+                placeholder="Paste your article text here...",
                 key=f"article_text_{unique_key}",
-                help="This will be auto-filled if you successfully scraped a URL",
                 on_change=lambda: detect_article_language(
                     st.session_state.get(f"article_text_{unique_key}", "")
                 ),
             )
 
-            # Show character count and language detection for the article
+            # Show language detection only for non-English articles
             if article_text_value:
-                char_count = len(article_text_value)
-                word_count = len(article_text_value.split())
-
-                # Display stats in columns
-                stat_col1, stat_col2 = st.columns(2)
-                with stat_col1:
-                    st.caption(f"📊 {char_count:,} characters, ~{word_count:,} words")
-
-                with stat_col2:
-                    if st.session_state.get("detected_language"):
-                        lang_info = st.session_state["detected_language"]
-                        language = lang_info.get("language", "Unknown")
-                        confidence = lang_info.get("confidence")
-                        method = lang_info.get("method", "unknown")
-                        error = lang_info.get("error")
-
-                        # Build detection method tooltip
-                        if method == "fast-langdetect":
-                            method_text = "⚡"  # Lightning emoji for fast detection
-                            tooltip = "Detected using fast-langdetect (offline)"
-                        elif method == "none":
-                            method_text = "❌"
-                            tooltip = "fast-langdetect not available"
-                        else:
-                            method_text = ""
-                            tooltip = ""
-
-                        # Show error if present (for debugging)
-                        if error and language == "Unknown":
-                            st.caption(
-                                f"🌍 Language detection unavailable {method_text}",
-                                help=f"{tooltip}. Error: {error}",
-                            )
-                        elif confidence and confidence > 0:
-                            confidence_pct = int(confidence * 100)
-                            if not lang_info.get("is_english", True):
-                                st.caption(
-                                    f"🌍 Language: **{language}** ({confidence_pct}% conf.) {method_text} - will translate",
-                                    help=tooltip,
-                                )
-                            else:
-                                st.caption(
-                                    f"🌍 Language: **{language}** ({confidence_pct}% conf.) {method_text}",
-                                    help=tooltip,
-                                )
-                        else:
-                            if not lang_info.get("is_english", True):
-                                st.caption(
-                                    f"🌍 Language: **{language}** {method_text} (will translate)",
-                                    help=tooltip,
-                                )
-                            else:
-                                if language == "Unknown":
-                                    st.caption(
-                                        f"🌍 Language: **{language}** {method_text}",
-                                        help=f"{tooltip}. {'Error: ' + error if error else 'Language could not be detected'}",
-                                    )
-                                else:
-                                    st.caption(
-                                        f"🌍 Language: **{language}** {method_text}",
-                                        help=tooltip,
-                                    )
+                lang_info = st.session_state.get("detected_language")
+                if lang_info and not lang_info.get("is_english", True) and lang_info.get("language") not in (None, "Unknown"):
+                    st.caption(f"🌍 {lang_info['language']} detected — will translate")
 
             # Step 4: Article Type Determination
-            st.subheader("Article Type")
+            st.markdown("#### Article Type")
 
-            # Option to use AI analysis
-            use_ai_analysis = st.checkbox(
-                "🤖 Let AI analyze and determine the article type",
-                help="Use Claude AI to automatically detect whether this is news, op-ed, feature, or interview. Note: AI analysis may occasionally misclassify articles.",
-                key=f"use_ai_analysis_{unique_key}",
+            # Apply pending auto-detected type before the widget renders
+            if st.session_state.get("pending_article_type"):
+                st.session_state[f"article_type_{unique_key}"] = st.session_state.pop("pending_article_type")
+
+            article_type = st.selectbox(
+                "Select Article Type",
+                ["news", "op-ed", "feature", "interview"],
+                key=f"article_type_{unique_key}",
             )
 
-            if use_ai_analysis:
-                # AI Detection Path
-                if st.button("🔍 Analyze Article Type", type="secondary"):
-                    handle_type_detection()
+            if st.button("🤖 Auto-detect type", type="secondary", use_container_width=True):
+                handle_type_detection()
 
-                # Add small disclaimer
-                st.caption(
-                    "💡 AI detection is generally accurate but may occasionally misclassify. You can always double-check the result."
+            if st.session_state.get("detected_type"):
+                explanation = st.session_state.get("detection_explanation", "")
+                label = st.session_state["detected_type"].title()
+                st.caption(f"Auto-detected: {label}" + (f" — {explanation}" if explanation else ""))
+
+            # Show author field for op-eds and interviews
+            if article_type in ["op-ed", "interview"]:
+                author_label = (
+                    "Author Name" if article_type == "op-ed" else "Interviewee Name"
+                )
+                st.text_input(
+                    author_label,
+                    placeholder="e.g., John Smith",
+                    key=f"author_{unique_key}",
                 )
 
-                # Show detected type
-                if st.session_state.get("detected_type"):
-                    detected_type = st.session_state["detected_type"]
-                    explanation = st.session_state.get("detection_explanation", "")
-
-                    st.success(
-                        f"**Detected Type: {detected_type.title()}**  \n{explanation}"
-                    )
-
-                    # Show author field if needed for detected type
-                    if detected_type in ["op-ed", "interview"]:
-                        author_label = (
-                            "Author Name"
-                            if detected_type == "op-ed"
-                            else "Interviewee Name"
-                        )
-                        st.text_input(
-                            author_label,
-                            placeholder="e.g., John Smith",
-                            key=f"author_{unique_key}",
-                            help=f"Required for {detected_type} articles",
-                        )
-            else:
-                # Manual Selection Path (Default)
-                article_type = st.selectbox(
-                    "Select Article Type",
-                    ["news", "op-ed", "feature", "interview"],
-                    help="Choose the type that best describes your article",
-                    key=f"article_type_{unique_key}",
+            if article_type == "news":
+                st.checkbox(
+                    "Use article pointers?",
+                    value=True,
+                    key=f"use_article_pointers_{unique_key}",
+                    help="Sentences after the first will begin with 'The article highlights / notes / outlines / cites'",
                 )
-
-                # Show author field for op-eds and interviews
-                if article_type in ["op-ed", "interview"]:
-                    author_label = (
-                        "Author Name" if article_type == "op-ed" else "Interviewee Name"
-                    )
-                    st.text_input(
-                        author_label,
-                        placeholder="e.g., John Smith",
-                        key=f"author_{unique_key}",
-                        help=f"Required for {article_type} articles",
-                    )
 
             # Step 5: Summary preferences (integrated into main flow)
             st.number_input(
@@ -733,14 +651,13 @@ def main():
                             f"✓ '{client_name}' is mentioned {count} times in the article"
                         )
 
-            st.divider()
-
-            # Summarize button with spinner
-            if st.button("Summarise", type="primary", use_container_width=True):
-                with st.spinner("🤖 Generating summary with Claude Sonnet..."):
-                    handle_submit()
+            summarise_clicked = st.button("Summarise", type="primary", use_container_width=True)
 
         with col2:
+            if summarise_clicked:
+                with st.spinner("Summarising..."):
+                    handle_submit()
+
             # Display any error messages at the top of the right column
             if st.session_state.get("error_message"):
                 st.error(st.session_state["error_message"])
@@ -749,27 +666,9 @@ def main():
             if st.session_state["summary"]:
                 st.subheader("Summary")
 
-                # Create a nice container for the summary
-                with st.container():
-                    # Add a subtle background color to the summary box
-                    st.markdown(
-                        """
-                        <style>
-                        .summary-box {
-                            background-color: #f0f2f6;
-                            padding: 20px;
-                            border-radius: 10px;
-                            margin: 10px 0;
-                        }
-                        </style>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                st.text(st.session_state["summary"])
 
-                    # Display the summary text
-                    st.text(st.session_state["summary"])
-
-                # FIX: Show clipboard feedback
+                # Show clipboard feedback
                 if st.session_state.get("clipboard_feedback"):
                     if st.session_state["clipboard_feedback"] == "full":
                         st.success("📋 Full summary copied to clipboard!")
@@ -808,47 +707,9 @@ def main():
                         use_container_width=True,
                     )
 
-            # Show helpful information when no summary is present
+            # Show placeholder when no summary is present
             else:
-                # Create an info box with better styling
-                with st.container():
-                    st.markdown("""
-                    ### 📖 How to use:
-
-                    **Option A: URL Scraping (New!)**
-                    1. Select "Enter URL" and paste the article URL
-                    2. Click "Fetch Article" to automatically extract the text
-                    3. The publication name and article text will be auto-filled
-                    4. Continue with type selection and generate summary
-
-                    **Option B: Manual Input**
-                    1. Select "Paste Text" and enter publication name
-                    2. Paste your article text in the text box
-                    3. Select article type (manually or with AI)
-                    4. Set summary length and generate
-
-                    ---
-
-                    **✨ Features:**
-
-                    **🌐 URL Scraping**: Automatically extract articles from most news websites
-
-                    **⚡ Fast Language Detection**: Ultra-fast offline detection with 95% accuracy (when fast-langdetect installed)
-
-                    **🌍 Multilingual Support**: Automatically detects article language and translates to British English
-
-                    **🤖 AI Analysis**: Let Claude Haiku automatically detect the article type
-
-                    **📋 Manual Selection**: Choose the type yourself from the dropdown
-
-                    **🏢 Client Tracking**: Track how a specific client is mentioned
-
-                    **🇬🇧 UK Context**: Summaries are optimised for UK readers, avoiding redundant UK labels
-
-                    ---
-
-                    **⚠️ Note on Paywalls:** Some sites have paywalls that prevent automatic scraping. If scraping fails, you can always paste the text manually.
-                    """)
+                st.caption("Enter article details on the left to generate a summary.")
 
 
 if __name__ == "__main__":
