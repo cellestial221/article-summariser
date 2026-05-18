@@ -1,6 +1,5 @@
 streamlit
 anthropic
-pyperclip
 ftfy
 trafilatura
 newspaper4k

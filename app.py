@@ -1,9 +1,10 @@
+import json
 import os
 import re
 
 import bcrypt
-import pyperclip
 import streamlit as st
+import streamlit.components.v1 as components
 
 from article_scraper import ArticleScraper
 from summarizer import ArticleSummarizer
@@ -408,14 +409,9 @@ def handle_submit():
             st.session_state["error_message"] = f"An error occurred: {error_message}"
 
 
-def copy_to_clipboard(text):
-    """Copy text to clipboard using pyperclip"""
-    try:
-        pyperclip.copy(text)
-        return True
-    except Exception as e:
-        st.warning(f"Could not copy to clipboard: {str(e)}")
-        return False
+def copy_to_clipboard_js(text):
+    """Queue a browser-side clipboard write for the next render pass."""
+    st.session_state["pending_copy_text"] = text
 
 
 def remove_publication_from_summary(text):
@@ -432,16 +428,16 @@ def remove_publication_from_summary(text):
 def handle_copy_full():
     """Handle copying full summary"""
     if st.session_state.get("summary"):
-        if copy_to_clipboard(st.session_state["summary"]):
-            st.session_state["clipboard_feedback"] = "full"
+        copy_to_clipboard_js(st.session_state["summary"])
+        st.session_state["clipboard_feedback"] = "full"
 
 
 def handle_copy_clean():
     """Handle copying clean summary"""
     if st.session_state.get("summary"):
         clean_summary = remove_publication_from_summary(st.session_state["summary"])
-        if copy_to_clipboard(clean_summary):
-            st.session_state["clipboard_feedback"] = "clean"
+        copy_to_clipboard_js(clean_summary)
+        st.session_state["clipboard_feedback"] = "clean"
 
 
 def check_password() -> bool:
@@ -697,6 +693,31 @@ def main():
             if summarise_clicked:
                 with st.spinner("Summarising..."):
                     handle_submit()
+
+            # Fire browser clipboard write if queued by a copy button on_click
+            if st.session_state.get("pending_copy_text"):
+                text_json = json.dumps(st.session_state.pop("pending_copy_text"))
+                components.html(
+                    f"""<script>
+                    (async () => {{
+                        const text = {text_json};
+                        try {{
+                            await navigator.clipboard.writeText(text);
+                        }} catch (e) {{
+                            const el = document.createElement('textarea');
+                            el.value = text;
+                            el.style.position = 'fixed';
+                            el.style.top = '-9999px';
+                            document.body.appendChild(el);
+                            el.focus();
+                            el.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(el);
+                        }}
+                    }})();
+                    </script>""",
+                    height=0,
+                )
 
             # Display any error messages at the top of the right column
             if st.session_state.get("error_message"):
