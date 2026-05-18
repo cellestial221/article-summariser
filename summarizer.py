@@ -151,7 +151,10 @@ class ArticleSummarizer:
                 # Use the first ~5 sentences for detection — fast-langdetect warns on long text
                 sentences = article_text.replace("\n", " ").split(". ")
                 clean_text = ". ".join(sentences[:5])
-                result = fast_detect(clean_text, low_memory=True)
+                try:
+                    result = fast_detect(clean_text, low_memory=True)
+                except TypeError:
+                    result = fast_detect(clean_text)
 
                 # Map language codes to full names
                 lang_code = result["lang"].lower()
