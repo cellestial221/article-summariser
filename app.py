@@ -4,7 +4,6 @@ import re
 
 import bcrypt
 import streamlit as st
-import streamlit.components.v1 as components
 
 from article_scraper import ArticleScraper
 from summarizer import ArticleSummarizer
@@ -697,7 +696,7 @@ def main():
             # Fire browser clipboard write if queued by a copy button on_click
             if st.session_state.get("pending_copy_text"):
                 text_json = json.dumps(st.session_state.pop("pending_copy_text"))
-                components.html(
+                st.iframe(
                     f"""<script>
                     (async () => {{
                         const text = {text_json};
