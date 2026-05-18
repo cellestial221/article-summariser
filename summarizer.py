@@ -150,7 +150,7 @@ class ArticleSummarizer:
             try:
                 # Use the first ~5 sentences for detection — fast-langdetect warns on long text
                 sentences = article_text.replace("\n", " ").split(". ")
-                clean_text = ". ".join(sentences[:5])
+                clean_text = ". ".join(sentences[:1])
                 try:
                     result = fast_detect(clean_text, low_memory=True)
                 except TypeError:

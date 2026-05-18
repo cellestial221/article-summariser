@@ -4,7 +4,6 @@ import re
 
 import bcrypt
 import streamlit as st
-import streamlit.components.v1 as components
 
 from article_scraper import ArticleScraper
 from summarizer import ArticleSummarizer
@@ -688,7 +687,7 @@ def main():
                 clean_text_json = json.dumps(
                     remove_publication_from_summary(st.session_state["summary"])
                 )
-                components.html(
+                st.iframe(
                     f"""
                     <style>
                         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
