@@ -114,7 +114,6 @@ def reset_form():
     st.session_state["client_validation_done"] = False
     st.session_state["scraped_content"] = None
     st.session_state["detected_language"] = None
-    st.session_state["clipboard_feedback"] = None
     st.session_state["pending_article_type"] = None
 
 
@@ -408,10 +407,6 @@ def handle_submit():
             st.session_state["error_message"] = f"An error occurred: {error_message}"
 
 
-def copy_to_clipboard_js(text):
-    """Queue a browser-side clipboard write for the next render pass."""
-    st.session_state["pending_copy_text"] = text
-
 
 def remove_publication_from_summary(text):
     """Strip leading publication name, keeping the connecting phrase intact."""
@@ -423,20 +418,6 @@ def remove_publication_from_summary(text):
             return text[idx + 1 :]  # skip leading space, keep phrase as-is
     return text
 
-
-def handle_copy_full():
-    """Handle copying full summary"""
-    if st.session_state.get("summary"):
-        copy_to_clipboard_js(st.session_state["summary"])
-        st.session_state["clipboard_feedback"] = "full"
-
-
-def handle_copy_clean():
-    """Handle copying clean summary"""
-    if st.session_state.get("summary"):
-        clean_summary = remove_publication_from_summary(st.session_state["summary"])
-        copy_to_clipboard_js(clean_summary)
-        st.session_state["clipboard_feedback"] = "clean"
 
 
 def check_password() -> bool:
@@ -509,8 +490,6 @@ def main():
         st.session_state["scraped_content"] = None
     if "detected_language" not in st.session_state:
         st.session_state["detected_language"] = None
-    if "clipboard_feedback" not in st.session_state:
-        st.session_state["clipboard_feedback"] = None
     if not check_password():
         st.stop()
 
@@ -693,13 +672,42 @@ def main():
                 with st.spinner("Summarising..."):
                     handle_submit()
 
-            # Fire browser-side clipboard write if queued by a copy button
-            if st.session_state.get("pending_copy_text"):
-                text_json = json.dumps(st.session_state.pop("pending_copy_text"))
-                st.html(
-                    f"""<script>
-                    (async () => {{
-                        const text = {text_json};
+
+            # Display any error messages at the top of the right column
+            if st.session_state.get("error_message"):
+                st.error(st.session_state["error_message"])
+
+            # Display summary using safe text display
+            if st.session_state["summary"]:
+                st.subheader("Summary")
+
+                st.text(st.session_state["summary"])
+
+                full_text_json = json.dumps(st.session_state["summary"])
+                clean_text_json = json.dumps(
+                    remove_publication_from_summary(st.session_state["summary"])
+                )
+                st.html(f"""
+                    <div style="display:flex; gap:8px; margin-top:8px;">
+                        <button onclick="copyText({full_text_json}, this)" style="
+                            flex:1; padding:8px 16px; border:none; border-radius:8px;
+                            background:#224347; color:white; cursor:pointer;
+                            font-size:14px; font-family:inherit;
+                        " onmouseover="this.style.background='#1a3437'"
+                          onmouseout="if(!this.dataset.copied)this.style.background='#224347'">
+                            📋 Copy Full
+                        </button>
+                        <button onclick="copyText({clean_text_json}, this)" style="
+                            flex:1; padding:8px 16px; border-radius:8px;
+                            background:transparent; color:#224347; cursor:pointer;
+                            border:1px solid #224347; font-size:14px; font-family:inherit;
+                        " onmouseover="this.style.background='#eef4f4'"
+                          onmouseout="if(!this.dataset.copied)this.style.background='transparent'">
+                            📄 Copy Clean
+                        </button>
+                    </div>
+                    <script>
+                    async function copyText(text, btn) {{
                         try {{
                             await navigator.clipboard.writeText(text);
                         }} catch (e) {{
@@ -713,58 +721,28 @@ def main():
                             document.execCommand('copy');
                             document.body.removeChild(el);
                         }}
-                    }})();
-                    </script>"""
+                        const orig = btn.textContent;
+                        btn.textContent = '✓ Copied!';
+                        btn.dataset.copied = '1';
+                        btn.style.background = '#0a8a40';
+                        btn.style.color = 'white';
+                        btn.style.borderColor = '#0a8a40';
+                        setTimeout(() => {{
+                            btn.textContent = orig;
+                            delete btn.dataset.copied;
+                            btn.style = btn.getAttribute('style');
+                        }}, 1500);
+                    }}
+                    </script>
+                """)
+
+                st.button(
+                    "🔄 New Article",
+                    type="secondary",
+                    on_click=reset_form,
+                    help="Start a new article summary",
+                    use_container_width=True,
                 )
-
-            # Display any error messages at the top of the right column
-            if st.session_state.get("error_message"):
-                st.error(st.session_state["error_message"])
-
-            # Display summary using safe text display
-            if st.session_state["summary"]:
-                st.subheader("Summary")
-
-                st.text(st.session_state["summary"])
-
-                # Show clipboard feedback
-                if st.session_state.get("clipboard_feedback"):
-                    if st.session_state["clipboard_feedback"] == "full":
-                        st.success("📋 Full summary copied to clipboard!")
-                    elif st.session_state["clipboard_feedback"] == "clean":
-                        st.success("📄 Clean summary copied to clipboard!")
-                    # Clear feedback after showing
-                    st.session_state["clipboard_feedback"] = None
-
-                # FIX: Action buttons using callbacks to prevent disappearing
-                col_copy, col_copy_no_pub, col_new = st.columns(3)
-
-                with col_copy:
-                    st.button(
-                        "📋 Copy Full",
-                        type="primary",
-                        use_container_width=True,
-                        help="Copy complete summary including publication name",
-                        on_click=handle_copy_full,
-                    )
-
-                with col_copy_no_pub:
-                    st.button(
-                        "📄 Copy Clean",
-                        type="secondary",
-                        use_container_width=True,
-                        help="Copy summary without publication name",
-                        on_click=handle_copy_clean,
-                    )
-
-                with col_new:
-                    st.button(
-                        "🔄 New Article",
-                        type="secondary",
-                        on_click=reset_form,
-                        help="Start a new article summary",
-                        use_container_width=True,
-                    )
 
             # Show placeholder when no summary is present
             else:
