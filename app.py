@@ -4,6 +4,7 @@ import re
 
 import bcrypt
 import streamlit as st
+import streamlit.components.v1 as components
 
 from article_scraper import ArticleScraper
 from summarizer import ArticleSummarizer
@@ -687,54 +688,109 @@ def main():
                 clean_text_json = json.dumps(
                     remove_publication_from_summary(st.session_state["summary"])
                 )
-                st.html(f"""
-                    <div style="display:flex; gap:8px; margin-top:8px;">
-                        <button onclick="copyText({full_text_json}, this)" style="
-                            flex:1; padding:8px 16px; border:none; border-radius:8px;
-                            background:#224347; color:white; cursor:pointer;
-                            font-size:14px; font-family:inherit;
-                        " onmouseover="this.style.background='#1a3437'"
-                          onmouseout="if(!this.dataset.copied)this.style.background='#224347'">
-                            📋 Copy Full
+                components.html(
+                    f"""
+                    <style>
+                        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+                        .btn-row {{ display: flex; gap: 8px; padding: 4px 0; }}
+                        .btn {{
+                            flex: 1; padding: 8px 16px; border-radius: 8px;
+                            font-size: 14px; cursor: pointer; transition: background 0.15s;
+                        }}
+                        .btn-primary {{
+                            background: #224347; color: white; border: none;
+                        }}
+                        .btn-primary:hover {{ background: #1a3437; }}
+                        .btn-secondary {{
+                            background: transparent; color: #224347;
+                            border: 1px solid #224347;
+                        }}
+                        .btn-secondary:hover {{ background: #eef4f4; }}
+                        .btn-success {{
+                            background: #0a8a40 !important; color: white !important;
+                            border-color: #0a8a40 !important;
+                        }}
+                        #status {{
+                            font-size: 11px; margin-top: 2px; color: #888;
+                            min-height: 14px;
+                        }}
+                    </style>
+                    <div class="btn-row">
+                        <button id="btnFull" class="btn btn-primary">
+                            Copy Full
                         </button>
-                        <button onclick="copyText({clean_text_json}, this)" style="
-                            flex:1; padding:8px 16px; border-radius:8px;
-                            background:transparent; color:#224347; cursor:pointer;
-                            border:1px solid #224347; font-size:14px; font-family:inherit;
-                        " onmouseover="this.style.background='#eef4f4'"
-                          onmouseout="if(!this.dataset.copied)this.style.background='transparent'">
-                            📄 Copy Clean
+                        <button id="btnClean" class="btn btn-secondary">
+                            Copy Clean
                         </button>
                     </div>
+                    <div id="status"></div>
                     <script>
-                    async function copyText(text, btn) {{
+                    var fullText = {full_text_json};
+                    var cleanText = {clean_text_json};
+
+                    document.getElementById('btnFull').addEventListener('click', function() {{
+                        doCopy(fullText, this);
+                    }});
+                    document.getElementById('btnClean').addEventListener('click', function() {{
+                        doCopy(cleanText, this);
+                    }});
+
+                    function doCopy(text, btn) {{
+                        var status = document.getElementById('status');
+                        status.textContent = '';
+
+                        var ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'absolute';
+                        ta.style.left = '-9999px';
+                        document.body.appendChild(ta);
+                        ta.select();
+
+                        var ok = false;
                         try {{
-                            await navigator.clipboard.writeText(text);
+                            ok = document.execCommand('copy');
                         }} catch (e) {{
-                            const el = document.createElement('textarea');
-                            el.value = text;
-                            el.style.position = 'fixed';
-                            el.style.top = '-9999px';
-                            document.body.appendChild(el);
-                            el.focus();
-                            el.select();
-                            document.execCommand('copy');
-                            document.body.removeChild(el);
+                            status.textContent = 'execCommand error: ' + e.message;
                         }}
-                        const orig = btn.textContent;
-                        btn.textContent = '✓ Copied!';
-                        btn.dataset.copied = '1';
-                        btn.style.background = '#0a8a40';
-                        btn.style.color = 'white';
-                        btn.style.borderColor = '#0a8a40';
-                        setTimeout(() => {{
+                        document.body.removeChild(ta);
+
+                        if (ok) {{
+                            showSuccess(btn);
+                            return;
+                        }}
+
+                        status.textContent = 'execCommand failed, trying Clipboard API...';
+                        if (navigator.clipboard && navigator.clipboard.writeText) {{
+                            navigator.clipboard.writeText(text).then(function() {{
+                                showSuccess(btn);
+                                status.textContent = '';
+                            }}).catch(function(err) {{
+                                status.textContent = 'Copy failed: ' + err.message;
+                                status.style.color = '#c0392b';
+                            }});
+                        }} else {{
+                            status.textContent = 'No clipboard method available in this browser.';
+                            status.style.color = '#c0392b';
+                        }}
+                    }}
+
+                    function showSuccess(btn) {{
+                        var orig = btn.textContent;
+                        var origClass = btn.className;
+                        btn.textContent = 'Copied!';
+                        btn.className = btn.className.replace('btn-primary', 'btn-success')
+                                                      .replace('btn-secondary', 'btn-success');
+                        setTimeout(function() {{
                             btn.textContent = orig;
-                            delete btn.dataset.copied;
-                            btn.style = btn.getAttribute('style');
+                            btn.className = origClass;
                         }}, 1500);
                     }}
                     </script>
-                """)
+                    """,
+                    height=55,
+                )
 
                 st.button(
                     "🔄 New Article",
