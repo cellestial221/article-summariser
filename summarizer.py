@@ -82,6 +82,28 @@ class ArticleSummarizer:
 
         return summary.strip()
 
+    def _apply_house_style(self, summary: str) -> str:
+        """Apply house-style abbreviations to a generated summary."""
+        import re
+
+        currency_amount = re.compile(
+            r"(?P<amount>[£€$]\s*\d[\d,]*(?:\.\d+)?)\s+"
+            r"(?P<unit>millions?|billions?)\b",
+            re.IGNORECASE,
+        )
+
+        def abbreviate_currency(match):
+            unit = match.group("unit").lower()
+            suffix = "bn" if unit.startswith("billion") else "m"
+            return f"{match.group('amount')}{suffix}"
+
+        summary = currency_amount.sub(abbreviate_currency, summary)
+        summary = re.sub(
+            r"\b(?:per\s+cent|percent)\b", "%", summary, flags=re.IGNORECASE
+        )
+        summary = re.sub(r"(?<=\w)\s+%", "%", summary)
+        return summary
+
     def _build_client_mention_context(self, client_mentions: dict) -> str:
         """Build contextual instructions for client mentions in the summary."""
         if not client_mentions:
@@ -509,6 +531,13 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
         if client_mentions:
             client_context = self._build_client_mention_context(client_mentions)
 
+        two_sentence_instruction = ""
+        if sentence_count == 2:
+            two_sentence_instruction = (
+                " Avoid overloading the first sentence: state the central point clearly "
+                "and use the second sentence for supporting detail where appropriate."
+            )
+
         # Build language and spelling instructions
         if is_english:
             spelling_instruction = (
@@ -534,13 +563,13 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
                 if use_article_pointers else ""
             )
             prompt = (
-                f"Summarise this news article in {sentence_count} *short* sentences. {spelling_instruction} Be specific where applicable. Full sentences only, no lists.{pointer_instruction}{instruction_text}{client_context} "
+                f"Summarise this news article in {sentence_count} *short* sentences. {spelling_instruction} Be specific where applicable. Full sentences only, no lists.{pointer_instruction}{two_sentence_instruction}{instruction_text}{client_context} "
                 f"You MUST begin with '{publication} reports that'\n\nArticle: {article_text}"
             )
 
         elif article_type == "interview":
             prompt = (
-                f"Summarise this interview article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
+                f"Summarise this interview article in {sentence_count} *concise* SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{two_sentence_instruction}{instruction_text}{client_context} "
                 f"For your first sentence: Begin with '{publication} carries an interview with {author}' and include a brief overview of the main topic discussed. "
                 f"For remaining {sentence_count - 1} sentences, begin these sentences like  '[author last name] argues/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}"
             )
@@ -578,13 +607,13 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
                 author_intro = author
 
             prompt = (
-                f"Summarise this op-ed article in {sentence_count} VERY SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{instruction_text}{client_context} "
+                f"Summarise this op-ed article in {sentence_count} VERY SHORT sentences that flow. {spelling_instruction} Do NOT use 'we' in the summary. Be specific where applicable.{two_sentence_instruction}{instruction_text}{client_context} "
                 f"For your first sentence: Begin with '{publication} carries an op-ed by {author_intro}' and include a brief overview of their main argument or opinion. "
                 f"For remaining {sentence_count - 1} sentences, begin these sentences like  '[author last name] argues/warns/suggests/highlights/describes/discusses/notes/cites that'.\n\nArticle: {article_text}"
             )
         else:  # feature
             prompt = (
-                f"Summarise this feature article in {sentence_count} *concise* quite SHORT sentences that flow. {spelling_instruction} Where applicable begin sentences like 'The article (also) highlights/cites/notes/discusses/examines/suggests'. Do NOT use 'we' in the summary. Be specific where applicable and make sure to convey the broad points of the piece in the summary.{instruction_text}{client_context} "
+                f"Summarise this feature article in {sentence_count} *concise* quite SHORT sentences that flow. {spelling_instruction} Where applicable begin sentences like 'The article (also) highlights/cites/notes/discusses/examines/suggests'. Do NOT use 'we' in the summary. Be specific where applicable and make sure to convey the broad points of the piece in the summary.{two_sentence_instruction}{instruction_text}{client_context} "
                 f"You MUST begin with '{publication} carries a feature'\n\nArticle: {article_text}"
             )
 
@@ -603,8 +632,10 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
             # Clean the response
             summary = self._clean_response(summary)
 
+            # Apply house style after the generated text has been cleaned
+            summary = self._apply_house_style(summary)
+
             return summary
 
         except Exception as e:
             raise Exception(f"Error getting summary from Claude: {str(e)}")
-
