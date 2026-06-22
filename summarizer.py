@@ -534,8 +534,8 @@ Remember: Readers want maximum information in minimum time with 100% factual acc
         two_sentence_instruction = ""
         if sentence_count == 2:
             two_sentence_instruction = (
-                " Avoid overloading the first sentence: state the central point clearly "
-                "and use the second sentence for supporting detail where appropriate."
+                " Keep the first sentence especially concise: state only the central point "
+                "and move supporting detail into the second sentence."
             )
 
         # Build language and spelling instructions
